@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Stepper from '../components/Stepper';
 
 // 아이콘은 lucide-react 대신 텍스트/이모지를 사용하거나,

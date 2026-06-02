@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Stepper from '../components/Stepper'; // 경로에 맞게 확인해주세요
 
 export default function MelodyEditorPage() {
