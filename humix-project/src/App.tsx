@@ -1,15 +1,18 @@
 import Sidebar from "./components/Sidebar.tsx";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import Home from "./pages/Home.tsx";
+import MyProject from "./pages/MyProject.tsx";
+import CreateMusic from "./pages/CreateMusic.tsx";
 
 // 임시 컴포넌트 예시
-const Home = () => <div className="text-xl font-bold">🏠 홈 화면입니다.</div>;
-const MyProject = () => (
-  <div className="text-xl font-bold">📂 내 프로젝트 화면입니다.</div>
-);
-const CreateMusic = () => (
-  //여기부분에서 실제로 만들게 되면 pages라는 폴더에서 각자 맡은 부분하면 된다.
-  <div className="text-xl font-bold">🎵 음악 만들기 화면입니다.</div>
-);
+// const Home = () => <div className="text-xl font-bold">🏠 홈 화면입니다.</div>;
+// const MyProject = () => (
+//   <div className="text-xl font-bold">📂 내 프로젝트 화면입니다.</div>
+// );
+// const CreateMusic = () => (
+//   //여기부분에서 실제로 만들게 되면 pages라는 폴더에서 각자 맡은 부분하면 된다.
+//   <div className="text-xl font-bold">🎵 음악 만들기 화면입니다.</div>
+// );
 
 export default function App() {
   return (
@@ -32,4 +35,3 @@ export default function App() {
     </BrowserRouter>
   );
 }
-
