@@ -115,15 +115,15 @@ export default function Sidebar() {
                   ${isOpen ? "" : "justify-center"}
                   ${
                     isActive
-                      ? "bg-purple-500/30 text-white font-medium"
-                      : "text-white/70 hover:text-white hover:bg-purple-500/20"
+                      ? "bg-violet-500/30 text-white font-medium"
+                      : "text-white/70 hover:text-white hover:bg-violet-500/20"
                   }
                 `}
               >
                 {({ isActive }) => (
                   <>
                     <div className="flex items-center gap-3 min-w-0">
-                      {/* 원래 사용하시던 원본 이미지 필터 조건 유지 */}
+                      {/* 원본 이미지 필터 조건 유지 - 흰색변경 및 색 조정*/}
                       <img
                         src={item.icon}
                         alt={item.label}
@@ -147,7 +147,7 @@ export default function Sidebar() {
 
                     {/* 내 프로젝트 우측의 보라색 숫자 배지 (사이드바 열렸을 때만) */}
                     {item.badge && isOpen && (
-                      <span className="flex items-center justify-center text-[10px] font-bold w-4 h-4 rounded-full bg-purple-600 text-white shrink-0">
+                      <span className="flex items-center justify-center text-[10px] font-bold w-4 h-4 rounded-full bg-violet-500 text-white shrink-0">
                         {item.badge}
                       </span>
                     )}
@@ -160,7 +160,7 @@ export default function Sidebar() {
       </div>
 
       {/* ── 최하단 고정 투명 로그인 유저 정보 카드 ── */}
-      <div className="px-2 pb-4 pt-2 border-t border-white/5">
+      <div className="px-4 pb-4 pt-2 border-t border-white/5">
         <div
           title={!isOpen ? `${user.name} (${user.plan})` : undefined}
           className={`
@@ -171,7 +171,7 @@ export default function Sidebar() {
           <div
             className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center font-bold text-sm text-white select-none"
             style={{
-              background: "linear-gradient(135deg, #818cf8, #38bdf8)",
+              background: "#7C4DFF",
               boxShadow: "0 2px 8px rgba(56, 189, 248, 0.2)",
             }}
           >
