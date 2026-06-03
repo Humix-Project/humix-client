@@ -1,24 +1,20 @@
 /**
  * ReferenceUpload.tsx
- * 
- * [Step 4] 참고 음악 선택 페이지
+ * * [Step 4] 참고 음악 선택 페이지
  * 사용자가 참고 음악을 업로드하는 UI 컴포넌트
- * 
+ * * ─────────────────────────────────────────────
+ * TODO: API 연결 포인트 요약 (HuMix_API.pdf 기준)
  * ─────────────────────────────────────────────
- *  TODO: API 연결 포인트 요약 (HuMix_API.pdf 기준)
- * ─────────────────────────────────────────────
- *  [API-1] Presigned URL 발급
- *    POST /api/v1/upload/audio/presigned
- *    Body: { audio_name, content_type, usage: "REFERENCE" }
- * 
- *  [API-2] S3 직접 업로드
- *    PUT {presigned_url}
- *    Body: 파일 바이너리 (FormData 아님, 파일 객체 그대로)
- * 
- *  [API-3] 업로드 완료 후 DB 저장
- *    POST /api/v1/upload/reference-tracks
- *    Body: { file_key, audio_name, duration_seconds }
- *    → reference_track_id 반환 (이후 곡 생성 요청 시 사용)
+ * [API-1] Presigned URL 발급
+ * POST /api/v1/upload/audio/presigned
+ * Body: { audio_name, content_type, usage: "REFERENCE" }
+ * * [API-2] S3 직접 업로드
+ * PUT {presigned_url}
+ * Body: 파일 바이너리 (FormData 아님, 파일 객체 그대로)
+ * * [API-3] 업로드 완료 후 DB 저장
+ * POST /api/v1/upload/reference-tracks
+ * Body: { file_key, audio_name, duration_seconds }
+ * → reference_track_id 반환 (이후 곡 생성 요청 시 사용)
  * ─────────────────────────────────────────────
  */
 
@@ -344,8 +340,8 @@ export default function ReferenceUpload() {
           {/* ── 하단 버튼 영역 ── */}
           {/*
            * 배치 이유:
-           *   업로드 박스 오른쪽 아래 정렬 → 시선이 업로드 완료 후 자연스럽게 버튼으로 이동
-           *   건너뛰기는 시각적 무게를 낮게(텍스트 스타일), 다음 버튼은 주요 액션으로 강조
+           * 업로드 박스 오른쪽 아래 정렬 → 시선이 업로드 완료 후 자연스럽게 버튼으로 이동
+           * 건너뛰기는 시각적 무게를 낮게(텍스트 스타일), 다음 버튼은 주요 액션으로 강조
            */}
           <div className="mt-8 flex justify-end gap-3">
 
@@ -358,17 +354,18 @@ export default function ReferenceUpload() {
             </button>
 
             {/* 다음: AI 생성 버튼 — 스텝퍼 완료 단계 색상(#8B5CF6)과 통일
-             *   - 파일 미선택 상태: 활성 (건너뛰기와 동일하게 바로 진행 가능)
-             *   - 업로드 중: 비활성 (진행 중에는 이동 불가)
-             *   - 업로드 완료: 활성
+             * - 파일 미선택 상태: 활성 (건너뛰기와 동일하게 바로 진행 가능)
+             * - 업로드 중: 비활성 (진행 중에는 이동 불가)
+             * - 업로드 완료: 활성
              * TODO: 클릭 시 navigate('/generation') 연결 필요
              */}
             <button
               onClick={handleNext}
-              disabled={isUploading}
+              // 수정됨: isUploading 대신 선언해둔 canProceed 변수를 사용하여 논리를 명확히 함
+              disabled={!canProceed} 
               className={`
                 px-7 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 shadow-lg
-                ${isUploading
+                ${!canProceed // 수정됨: canProceed가 false일 때(업로드 중일 때) 비활성화 스타일 적용
                   ? 'bg-[#8B5CF6]/40 text-white/50 cursor-not-allowed'
                   : 'bg-[#8B5CF6] hover:bg-[#7C3AED] text-white shadow-[#8B5CF6]/30'
                 }
