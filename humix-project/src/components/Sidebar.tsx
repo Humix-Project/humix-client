@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
 
+//1. 네비게이션 아이템과 섹션 타입 정의
 interface NavItem {
   icon: string;
   label: string;
@@ -43,6 +44,7 @@ const navSections: NavSection[] = [
   },
 ];
 
+//2. 사이드바 컴포넌트 구현
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(true);
 
