@@ -53,12 +53,13 @@ export default function Sidebar() {
   };
 
   return (
+    // 전체 사이드바
     <aside
       className={`
         h-screen bg-black flex flex-col shrink-0
         transition-all duration-300 ease-in-out
         border-r border-white/10 select-none
-        ${isOpen ? "w-52" : "w-14"}
+        ${isOpen ? "w-52" : "w-16"}
       `}
     >
       {/* ── 로고 영역 ── */}
@@ -70,19 +71,19 @@ export default function Sidebar() {
         <img
           src="/logo/icon.png"
           alt="HumMix Icon"
-          className="w-8 h-8 rounded-full shrink-0"
+          className="w-8 h-8 rounded-100 shrink-0"
         />
         <span
           className={`
-            text-white font-semibold text-sm whitespace-nowrap
+            whitespace-nowrap
             transition-all duration-300 ease-in-out
             ${isOpen ? "opacity-100 w-auto" : "opacity-0 w-0"}
           `}
         >
           <img
             src="/logo/logo.png"
-            alt="HumMix Text"
-            className="h-15 w-20 object-contain shrink-0"
+            alt="HumMix logo"
+            className="h-20 w-25 object-contain shrink-0"
           />
         </span>
       </div>
