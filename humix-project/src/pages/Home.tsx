@@ -215,11 +215,11 @@ export default function Home() {
             className="text-base leading-relaxed max-w-100"
             style={{ color: "rgba(255,255,255,0.52)" }}
           >
-            Turn your everyday humming into fully orchestrated tracks.
+            일상의 가벼운 허밍을 풍성한 한 편의 음악으로.
             <br />
-            Express your mood, capture a moment, and become the
+            당신의 감정을 담아, 언제나 꿈꿔왔던
             <br />
-            artist you've always wanted to be.
+            나만의 음악 세계를 펼쳐보세요.
           </p>
 
           <div className="flex items-center gap-4 mt-2">
@@ -227,37 +227,13 @@ export default function Home() {
               onClick={() => navigate("/create-music")}
               className="flex items-center gap-2 px-6 py-3 rounded-full font-semibold text-white transition-all duration-200 hover:scale-105 active:scale-95"
               style={{
-                background: "linear-gradient(135deg, #a855f7, #ec4899)",
+                background: "#7C4DFF",
                 boxShadow: "0 4px 24px rgba(168,85,247,0.4)",
                 fontSize: "15px",
               }}
             >
               <span>🎤</span>
               Start Humming
-            </button>
-            <button
-              className="flex items-center gap-2 px-5 py-3 rounded-full font-medium transition-all duration-200 hover:bg-white/10 active:scale-95"
-              style={{
-                color: "rgba(255,255,255,0.75)",
-                border: "1px solid rgba(255,255,255,0.15)",
-                fontSize: "15px",
-              }}
-            >
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: "18px",
-                  height: "18px",
-                  borderRadius: "50%",
-                  border: "1.5px solid rgba(255,255,255,0.55)",
-                  fontSize: "9px",
-                }}
-              >
-                ▶
-              </span>
-              How it works
             </button>
           </div>
         </div>
