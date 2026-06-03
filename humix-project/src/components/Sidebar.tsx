@@ -160,16 +160,18 @@ export default function Sidebar() {
       </div>
 
       {/* ── 최하단 고정 투명 로그인 유저 정보 카드 ── */}
-      <div className="px-4 pb-4 pt-2 border-t border-white/5">
+      {/* 이후에 user변수 생성 필요 */}
+      <div className="px-4 pb-4 pt-2 ">
         <div
           title={!isOpen ? `${user.name} (${user.plan})` : undefined}
           className={`
             flex items-center gap-3 rounded-xl transition-all duration-300 overflow-hidden
-            ${isOpen ? "p-3 bg-white/[0.04] border border-white/[0.06]" : "p-1.5 justify-center bg-transparent"}
+            ${isOpen ? "p-3" : "p-0  bg-transparent"}
           `}
         >
           <div
-            className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center font-bold text-sm text-white select-none"
+            className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center font-bold text-sm text-white select-none"
+            // 보라색 고정값 적용 및 그림자 효과 추가 -> 보기 쉽게 수정할 부분
             style={{
               background: "#7C4DFF",
               boxShadow: "0 2px 8px rgba(56, 189, 248, 0.2)",
@@ -194,13 +196,7 @@ export default function Sidebar() {
 
           {isOpen && (
             <button className="text-white/30 hover:text-white/70 transition-colors shrink-0 p-0.5">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className="w-4 h-4"
-              >
+              <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4">
                 <circle cx="12" cy="12" r="3" />
                 <path d="M12 3v2M12 19v2M3 12h2M19 12h2" />
               </svg>
