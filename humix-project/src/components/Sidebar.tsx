@@ -18,9 +18,9 @@ const navSections: NavSection[] = [
   {
     sectionTitle: "메인",
     items: [
-      { icon: "/nav-icon/1.png", label: "홈", href: "/" },
+      { icon: "/nav-icon/home.png", label: "홈", href: "/" },
       {
-        icon: "/nav-icon/2.png",
+        icon: "/nav-icon/my-project.png",
         label: "내 프로젝트",
         href: "/my-project",
         badge: 3,
@@ -30,7 +30,11 @@ const navSections: NavSection[] = [
   {
     sectionTitle: "창작 도구",
     items: [
-      { icon: "/nav-icon/3.png", label: "음악 만들기", href: "/create-music" },
+      {
+        icon: "/nav-icon/create-music.png",
+        label: "음악 만들기",
+        href: "/create-music",
+      },
     ],
   },
   {
@@ -42,9 +46,9 @@ const navSections: NavSection[] = [
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(true);
 
-  // Guest 유저 상태 정보
+  // Guest 유저 상태 정보 -> 로그인 기능 구현 후 실제걸로 대체해야됨
   const user = {
-    name: "Guest_8731",
+    name: "Guest_1234",
     plan: "무료 플랜",
   };
 
