@@ -1,4 +1,6 @@
 import { useState } from "react";
+// ✅ 추가: 게스트 계정 부여를 위해 useEffect 임포트 추가
+import { useEffect } from "react";
 import { NavLink } from "react-router-dom";
 
 //1. 네비게이션 아이템과 섹션 타입 정의
@@ -49,10 +51,28 @@ export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(true);
 
   // Guest 유저 상태 정보 -> 로그인 기능 구현 후 실제걸로 대체해야됨
-  const user = {
-    name: "Guest_1234",
+  // ✅ 수정: 기존 정적 변수에서 useState를 사용해 상태로 관리하도록 변경했습니다.
+  const [user, setUser] = useState({
+    name: "",
     plan: "무료 플랜",
-  };
+  });
+
+  // ✅ 추가: 홈 화면 접속 시 게스트 계정을 자동 생성하고 로컬 스토리지에 저장하는 로직
+  useEffect(() => {
+    const storedGuestId = localStorage.getItem("humix_guest_id");
+    
+    if (storedGuestId) {
+      // 1. 기존 방문 기록이 있으면 스토리지에서 가져옴
+      setUser({ name: storedGuestId, plan: "무료 플랜" });
+    } else {
+      // 2. 첫 방문 시 UUID 텍스트 느낌으로 랜덤 4자리 코드를 만들어 즉시 부여 (버튼 클릭 동의 X)
+      const randomCode = Math.random().toString(16).substring(2, 6);
+      const newGuestName = `Guest_${randomCode}`;
+      
+      localStorage.setItem("humix_guest_id", newGuestName);
+      setUser({ name: newGuestName, plan: "무료 플랜" });
+    }
+  }, []);
 
   return (
     // 전체 사이드바
@@ -164,21 +184,27 @@ export default function Sidebar() {
       {/* ── 최하단 고정 투명 로그인 유저 정보 카드 ── */}
       {/* 이후에 user변수 생성 필요 */}
       <div className="px-4 pb-4 pt-2 ">
-        <div
+        {/* ✅ 추가: 유저 정보 박스 위에 영상처럼 얇은 선(border) 추가 */}
+        <div className="border-t border-white/10 mb-3 w-full"></div>
+
+        {/* ✅ 수정: 영역을 클릭할 수 있는 네모 박스(button) 형태로 변경하여 hover 효과를 주었습니다. */}
+        <button
           title={!isOpen ? `${user.name} (${user.plan})` : undefined}
           className={`
-            flex items-center gap-3 rounded-xl transition-all duration-300 overflow-hidden
-            ${isOpen ? "p-3" : "p-0  bg-transparent"}
+            w-full flex items-center gap-3 rounded-xl transition-all duration-300 overflow-hidden text-left
+            hover:bg-white/10 active:bg-white/5
+            ${isOpen ? "p-2.5" : "p-0 bg-transparent hover:bg-transparent justify-center"}
           `}
         >
           <div
             className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center font-bold text-sm text-white select-none"
-            // 보라색 고정값 적용 및 그림자 효과 추가 -> 보기 쉽게 수정할 부분
+            // ✅ 수정: 하늘색 그라데이션을 걷어내고 기존 서비스의 보라색 테마를 사용했습니다.
             style={{
-              background: "#7C4DFF",
-              boxShadow: "0 2px 8px rgba(56, 189, 248, 0.2)",
+              background: "linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)",
+              boxShadow: "0 2px 8px rgba(139, 92, 246, 0.3)",
             }}
           >
+            {/* 유저 이름의 첫 글자 'G' 출력 */}
             {user.name.charAt(0)}
           </div>
 
@@ -188,23 +214,17 @@ export default function Sidebar() {
               ${isOpen ? "opacity-100 w-auto" : "opacity-0 w-0 overflow-hidden"}
             `}
           >
-            <span className="text-white text-xs font-semibold tracking-wide truncate">
+            {/* ✅ 수정: 글자 크기를 영상에 맞게 약간 키우고 정돈했습니다. */}
+            <span className="text-white text-sm font-semibold tracking-wide truncate">
               {user.name}
             </span>
-            <span className="text-white/40 text-[10px] mt-0.5 font-medium">
+            <span className="text-white/40 text-[11px] mt-0.5 font-medium">
               {user.plan}
             </span>
           </div>
 
-          {isOpen && (
-            <button className="text-white/30 hover:text-white/70 transition-colors shrink-0 p-0.5">
-              <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M12 3v2M12 19v2M3 12h2M19 12h2" />
-              </svg>
-            </button>
-          )}
-        </div>
+          {/* ✅ 삭제: 우측에 있던 톱니바퀴 아이콘을 제거했습니다. */}
+        </button>
       </div>
     </aside>
   );
