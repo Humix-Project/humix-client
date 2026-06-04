@@ -33,10 +33,11 @@ export default function App() {
             {/* [추가] 컨셉 페이지 라우트 연결 */}
             <Route path="/concept" element={<Concept />} />
 
-            {/* 참고 음악 업로드 — 테스트용 라우트 (나중에 팀원 코드와 합칠 때 정리) */}
-            <Route path="/reference-upload" element={<ReferenceUpload />} />
+            {/* ✅ 수정: Concept.tsx의 navigate('/reference')와 주소를 맞추기 위해 path를 변경했습니다. */}
+            <Route path="/reference" element={<ReferenceUpload />} />
 
             {/* [추가] Step 5 AI 곡 완성 — 테스트용 라우트 (나중에 팀원 코드와 합칠 때 정리) */}
+            {/* ✅ 확인: Generation 라우트는 올바르게 설정되어 있습니다. */}
             <Route path="/generation" element={<Generation />} />
 
             <Route path="/faq" element={<Faq />} />
