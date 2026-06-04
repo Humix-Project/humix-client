@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import Stepper from "../components/Stepper";
+import { useNavigate } from "react-router-dom"; // ◀ react-router-dom에서 가져오기
 
 // ── 타입 ──────────────────────────────────────────────────────
 type RecordingVersion = {
@@ -124,6 +125,8 @@ function Waveform({
 
 // ── 메인 페이지 ───────────────────────────────────────────────
 export default function CreateMusic() {
+  const navigate = useNavigate(); // ◀ navigate 객체 선언
+
   const [recordState, setRecordState] = useState<RecordState>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [liveBars, setLiveBars] = useState<number[]>(Array(80).fill(5));
@@ -242,13 +245,9 @@ export default function CreateMusic() {
       duration_seconds: ver.durationSec,
     };
     console.log("POST /api/v1/upload/humming", body);
-    // const res = await fetch("/api/v1/upload/humming", {
-    //   method: "POST",
-    //   headers: { "Content-Type": "application/json" },
-    //   body: JSON.stringify(body),
-    // });
-    // const { humming_id } = await res.json();
-    alert(`다음 단계로 이동 (humming_id: mock_${selectedId})`);
+    
+    // ◀ navigate를 사용하여 페이지 이동
+    navigate("/MelodyEdit"); 
   }
 
   const hasVersions = versions.length > 0;
@@ -291,13 +290,13 @@ export default function CreateMusic() {
                 recordState === "recording"
                   ? "linear-gradient(135deg, #ec4899, #a855f7)"
                   : recordState === "done"
-                    ? "linear-gradient(135deg, #6366f1, #7c3aed)" // ◀ 완료 시 세련된 보라색 그라디언트로 변경
+                    ? "linear-gradient(135deg, #6366f1, #7c3aed)" 
                     : "linear-gradient(135deg, #7c3aed, #a855f7)",
               boxShadow:
                 recordState === "recording"
                   ? "0 0 0 0 rgba(236,72,153,0.4), 0 0 40px rgba(168,85,247,0.5)"
                   : recordState === "done"
-                    ? "0 0 30px rgba(124,58,237,0.45)" // ◀ 보라색 네온 글로우 효과 반영
+                    ? "0 0 30px rgba(124,58,237,0.45)" 
                     : "0 0 24px rgba(139,92,246,0.35)",
               animation:
                 recordState === "recording"
@@ -311,7 +310,7 @@ export default function CreateMusic() {
                 <rect x="6" y="6" width="12" height="12" rx="2.5" />
               </svg>
             ) : recordState === "done" ? (
-              /* 재녹음 아이콘 (보라색 톤에 맞춰 화이트 마이크 스타일 유지) */
+              /* 재녹음 아이콘 */
               <svg
                 viewBox="0 0 24 24"
                 fill="none"

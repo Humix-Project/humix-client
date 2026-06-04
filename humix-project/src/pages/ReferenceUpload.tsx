@@ -19,6 +19,8 @@
  */
 
 import { useState, useRef, useCallback } from "react";
+// ✅ 추가: 페이지 이동을 위한 useNavigate 훅 임포트
+import { useNavigate } from "react-router-dom";
 import Stepper from "../components/Stepper";
 
 export default function ReferenceUpload() {
@@ -28,6 +30,9 @@ export default function ReferenceUpload() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadDone, setUploadDone] = useState(false);
+
+  // ✅ 추가: 페이지 이동 함수 초기화
+  const navigate = useNavigate();
 
   // TODO: [API-3] 업로드 완료 후 서버에서 받은 reference_track_id 저장
   // const [referenceTrackId, setReferenceTrackId] = useState<number | null>(null);
@@ -151,20 +156,22 @@ export default function ReferenceUpload() {
 
   // ── 다음 단계 이동 핸들러 ─────────────────────────────────────────────────
   const handleNext = () => {
-    // TODO: React Router navigate('/generation') 또는 상위 컴포넌트 step 변경
     // TODO: Zustand store에 referenceTrackId 저장 후 이동
     //   useStore.getState().setReferenceTrackId(referenceTrackId);
-    //   navigate('/generation');
     console.log("다음: AI 생성 페이지로 이동");
-    console.log("reference_track_id:", null); // TODO: 실제 ID로 교체
+    
+    // ✅ 추가: 5단계 AI 생성 페이지(/generation)로 이동합니다.
+    navigate('/generation');
   };
 
   // ── 건너뛰기 핸들러 ──────────────────────────────────────────────────────
   const handleSkip = () => {
     // TODO: 참고 음악 없이 AI 생성 페이지로 이동
     // TODO: Zustand store의 referenceTrackId는 null로 유지
-    //   navigate('/generation');
     console.log("건너뛰기: 참고 음악 없이 진행");
+
+    // ✅ 추가: 참고 음악을 업로드하지 않고 건너뛰더라도 5단계(/generation)로 이동합니다.
+    navigate('/generation');
   };
 
   // ── 렌더링 ────────────────────────────────────────────────────────────────
@@ -387,16 +394,14 @@ export default function ReferenceUpload() {
              * - 파일 미선택 상태: 활성 (건너뛰기와 동일하게 바로 진행 가능)
              * - 업로드 중: 비활성 (진행 중에는 이동 불가)
              * - 업로드 완료: 활성
-             * TODO: 클릭 시 navigate('/generation') 연결 필요
              */}
             <button
               onClick={handleNext}
-              // 수정됨: isUploading 대신 선언해둔 canProceed 변수를 사용하여 논리를 명확히 함
               disabled={!canProceed}
               className={`
                 px-7 py-2.5 rounded-lg text-sm font-bold transition-all duration-200 shadow-lg
                 ${
-                  !canProceed // 수정됨: canProceed가 false일 때(업로드 중일 때) 비활성화 스타일 적용
+                  !canProceed 
                     ? "bg-[#8B5CF6]/40 text-white/50 cursor-not-allowed"
                     : "bg-[#8B5CF6] hover:bg-[#7C3AED] text-white shadow-[#8B5CF6]/30"
                 }

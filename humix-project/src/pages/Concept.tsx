@@ -1,9 +1,10 @@
 import { useState } from 'react';
+// ✅ 추가: 페이지 이동을 위한 useNavigate 훅 임포트
+import { useNavigate } from 'react-router-dom';
 import Stepper from '../components/Stepper';
 
 // 아이콘은 lucide-react 대신 텍스트/이모지를 사용하거나,
 // 또는 SVG를 직접 임포트해서 사용하는 방식으로 대체합니다.
-// 여기서는 텍스트 이모지로 간단하게 표현했습니다.
 const IconMusic = () => <span>🎵</span>;
 const IconViolin = () => <span>🎻</span>;
 const IconJazz = () => <span>🎷</span>;
@@ -35,6 +36,9 @@ type MoodId = typeof moods[number]['id'];
 export default function Concept() {
   const [selectedGenre, setSelectedGenre] = useState<GenreId | null>("kpop");
   const [selectedMoods, setSelectedMoods] = useState<MoodId[]>(["bright_exciting"]);
+  
+  // ✅ 추가: 페이지 이동 함수 초기화
+  const navigate = useNavigate();
 
   // 분위기 선택/해제 핸들러 (최대 3개 선택)
   const handleMoodToggle = (moodId: MoodId) => {
@@ -49,11 +53,20 @@ export default function Concept() {
     });
   };
 
+  // ✅ 추가: 다음 페이지로 넘어가는 핸들러 함수
+  const handleNextStep = () => {
+    // TODO: 페이지 이동 전에 Zustand 같은 전역 상태(Store)에 현재 선택한 장르와 분위기를 저장해야 합니다.
+    // 예: useStore.getState().setConcept(selectedGenre, selectedMoods);
+    
+    // ✅ 수정: 다음 단계인 참고 음악 선택 페이지(Reference.tsx)의 라우터 경로로 이동하도록 변경했습니다.
+    navigate('/reference'); 
+  };
+
   return (
     <div className="min-h-screen bg-[#0B0C10] text-gray-200 p-8 font-sans">
       <div className="max-w-6xl mx-auto">
 
-        {/* Stepper 적용 (현재 단계: 2. 편집) */}
+        {/* Stepper 적용 (현재 단계: 3. 컨셉) */}
           <div className="w-full bg-[#1A1D24] rounded-lg p-5 border border-gray-800 shadow-sm flex items-center justify-center">
             <Stepper currentStep={3} />
           </div>
@@ -138,8 +151,13 @@ export default function Concept() {
         
         {/* 하단 네비게이션 버튼 */}
         <div className="mt-8 flex justify-end">
-            <button className="px-6 py-2 rounded-lg text-sm font-bold border border-emerald-700/50 bg-emerald-900/40 text-emerald-300 hover:bg-emerald-900/60 transition-colors shadow-lg">
-                다음 (멜로디 녹음) →
+            {/* ✅ 수정: onClick 이벤트를 연결했습니다. */}
+            <button 
+              onClick={handleNextStep}
+              className="px-6 py-2 rounded-lg text-sm font-bold border border-emerald-700/50 bg-emerald-900/40 text-emerald-300 hover:bg-emerald-900/60 transition-colors shadow-lg"
+            >
+              {/* ✅ 수정: 버튼 텍스트를 지시사항에 맞춰 알맞게 변경했습니다. */}
+              다음 (참고 음악 선택) →
             </button>
         </div>
 
