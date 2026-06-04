@@ -4,10 +4,12 @@ import Home from "./pages/Home.tsx";
 import MyProject from "./pages/MyProject.tsx";
 import CreateMusic from "./pages/CreateMusic.tsx";
 import Faq from "./pages/Faq.tsx";
+import MelodyEditorPage from "./pages/MelodyEdit.tsx"; 
 //part 3
 import ReferenceUpload from "./pages/ReferenceUpload";
 // [추가] Step 5 AI 곡 완성 페이지 import
 import Generation from "./pages/Generation";
+import Concept from "./pages/Concept.tsx";
 
 export default function App() {
   return (
@@ -24,6 +26,12 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/my-project" element={<MyProject />} />
             <Route path="/create-music" element={<CreateMusic />} />
+
+            {/* [추가] 멜로디 편집 페이지 라우트 연결 */}
+            <Route path="/MelodyEdit" element={<MelodyEditorPage />} />
+
+            {/* [추가] 컨셉 페이지 라우트 연결 */}
+            <Route path="/concept" element={<Concept />} />
 
             {/* 참고 음악 업로드 — 테스트용 라우트 (나중에 팀원 코드와 합칠 때 정리) */}
             <Route path="/reference-upload" element={<ReferenceUpload />} />
