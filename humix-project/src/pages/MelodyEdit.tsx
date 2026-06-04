@@ -78,36 +78,42 @@ export default function MelodyEditorPage() {
           
           {/* 툴바 (상단 컨트롤) */}
           <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-6">
               
-              {/* 도구 선택 버튼 그룹 (점 편집, 재생, 초기화) */}
-              <div className="flex bg-[#0B0C10] rounded-lg p-1 border border-gray-800">
+              {/* ✅ 수정됨: 도구 선택 버튼 그룹 (보라색 네온 아웃라인 스타일 적용) */}
+              <div className="flex items-center gap-3">
                 <button
                   onClick={() => setActiveTool('edit')}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm transition-colors ${
-                    activeTool === 'edit' ? 'bg-[#8B5CF6] text-white' : 'text-gray-400 hover:text-white'
+                  className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    activeTool === 'edit'
+                      ? 'border border-[#8B5CF6] bg-[#8B5CF6]/10 text-[#a78bfa] shadow-[0_0_12px_rgba(139,92,246,0.2)]'
+                      : 'border border-gray-700/60 bg-transparent text-gray-400 hover:border-[#8B5CF6]/70 hover:text-[#a78bfa] hover:bg-[#8B5CF6]/5'
                   }`}
                 >
                   <span>🎯</span> 점 편집
                 </button>
+                
                 <button
                   onClick={() => setIsPlaying(!isPlaying)}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm transition-colors ${
-                    isPlaying ? 'bg-emerald-600/80 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                  className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    isPlaying
+                      ? 'border border-[#8B5CF6] bg-[#8B5CF6]/10 text-[#a78bfa] shadow-[0_0_12px_rgba(139,92,246,0.2)]'
+                      : 'border border-gray-700/60 bg-transparent text-gray-400 hover:border-[#8B5CF6]/70 hover:text-[#a78bfa] hover:bg-[#8B5CF6]/5'
                   }`}
                 >
                   <span>{isPlaying ? '⏸️' : '▶️'}</span> {isPlaying ? '정지' : '재생'}
                 </button>
+                
                 <button
                   onClick={() => console.log('캔버스 초기화')}
-                  className="flex items-center gap-2 px-4 py-1.5 rounded-md text-sm transition-colors text-gray-400 hover:text-white hover:bg-gray-800/50"
+                  className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all duration-200 border border-gray-700/60 bg-transparent text-gray-400 hover:border-[#8B5CF6]/70 hover:text-[#a78bfa] hover:bg-[#8B5CF6]/5"
                 >
-                  <span>↺</span> 초기화
+                  <span className="text-lg leading-none mb-0.5">↺</span> 초기화
                 </button>
               </div>
 
               {/* 음계 스냅 토글 */}
-              <div className="flex items-center gap-2 ml-4">
+              <div className="flex items-center gap-2 border-l border-gray-800 pl-6">
                 <button 
                   onClick={() => setIsSnapEnabled(!isSnapEnabled)}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
@@ -122,11 +128,11 @@ export default function MelodyEditorPage() {
               </div>
             </div>
 
-            {/* 우측 액션 버튼 */}
+            {/* ✅ 수정됨: 우측 액션 버튼 (꽉 찬 보라색 솔리드 스타일 적용) */}
             <div className="flex items-center gap-3">
               <button 
                 onClick={() => navigate('/concept')}
-                className="px-5 py-1.5 rounded-lg text-sm border border-emerald-700/50 bg-emerald-900/20 text-emerald-400 hover:bg-emerald-900/40 transition-colors shadow-sm"
+                className="px-8 py-3 rounded-xl text-base font-bold bg-[#8B5CF6] text-white hover:bg-[#7c3aed] transition-all duration-200 shadow-[0_0_20px_rgba(139,92,246,0.4)] hover:shadow-[0_0_30px_rgba(139,92,246,0.6)]"
               >
                 완료 →
               </button>
@@ -147,7 +153,7 @@ export default function MelodyEditorPage() {
 
             {/* ◀ 추가: melodyVectors 변수를 화면에 렌더링하여 미사용 에러 해결 및 데이터 로드 상태 시각적 확인 */}
             {!isLoading && melodyVectors.length > 0 && (
-              <div className="absolute top-3 right-4 text-xs text-emerald-400/70 z-20 pointer-events-none">
+              <div className="absolute top-3 right-4 text-xs text-purple-400/70 z-20 pointer-events-none">
                 ✓ 데이터 로드 완료 (노트 {melodyVectors.length}개)
               </div>
             )}
@@ -165,7 +171,7 @@ export default function MelodyEditorPage() {
             )}
 
             {/* 시간축 가이드 (하단) */}
-            <div className="absolute bottom-0 left-0 w-full h-8 flex items-center justify-between px-4 text-xs text-gray-600 border-t border-gray-800 bg-[#0B0C10]/80">
+            <div className="absolute bottom-0 left-0 w-full h-8 flex items-center justify-between px-4 text-xs text-gray-600 border-t border-gray-800 bg-[#0B0C10]/80 z-20">
               <span>0s</span>
               <span>2s</span>
               <span>4s</span>

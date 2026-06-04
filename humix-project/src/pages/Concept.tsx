@@ -2,6 +2,8 @@ import { useState } from 'react';
 // ✅ 추가: 페이지 이동을 위한 useNavigate 훅 임포트
 import { useNavigate } from 'react-router-dom';
 import Stepper from '../components/Stepper';
+// ✅ 추가: 이전에 만든 Zustand 스토어 임포트
+import { useConceptStore } from '../store/useConceptStore';
 
 // 아이콘은 lucide-react 대신 텍스트/이모지를 사용하거나,
 // 또는 SVG를 직접 임포트해서 사용하는 방식으로 대체합니다.
@@ -37,8 +39,11 @@ export default function Concept() {
   const [selectedGenre, setSelectedGenre] = useState<GenreId | null>("kpop");
   const [selectedMoods, setSelectedMoods] = useState<MoodId[]>(["bright_exciting"]);
   
-  // ✅ 추가: 페이지 이동 함수 초기화
+  // ✅ 페이지 이동 함수 초기화
   const navigate = useNavigate();
+  
+  // ✅ Zustand 스토어에서 데이터 저장 함수 꺼내오기
+  const setConcept = useConceptStore((state) => state.setConcept);
 
   // 분위기 선택/해제 핸들러 (최대 3개 선택)
   const handleMoodToggle = (moodId: MoodId) => {
@@ -53,12 +58,12 @@ export default function Concept() {
     });
   };
 
-  // ✅ 추가: 다음 페이지로 넘어가는 핸들러 함수
+  // ✅ 다음 페이지로 넘어가는 핸들러 함수
   const handleNextStep = () => {
-    // TODO: 페이지 이동 전에 Zustand 같은 전역 상태(Store)에 현재 선택한 장르와 분위기를 저장해야 합니다.
-    // 예: useStore.getState().setConcept(selectedGenre, selectedMoods);
+    // 1. Zustand 전역 상태(Store)에 현재 선택한 장르와 분위기를 저장
+    setConcept(selectedGenre, selectedMoods);
     
-    // ✅ 수정: 다음 단계인 참고 음악 선택 페이지(Reference.tsx)의 라우터 경로로 이동하도록 변경했습니다.
+    // 2. 다음 단계인 참고 음악 선택 페이지(Reference.tsx)의 라우터 경로로 이동
     navigate('/reference'); 
   };
 
@@ -151,12 +156,11 @@ export default function Concept() {
         
         {/* 하단 네비게이션 버튼 */}
         <div className="mt-8 flex justify-end">
-            {/* ✅ 수정: onClick 이벤트를 연결했습니다. */}
+            {/* ✅ 수정: 첨부해주신 꽉 찬 보라색 버튼 디자인으로 변경 */}
             <button 
               onClick={handleNextStep}
-              className="px-6 py-2 rounded-lg text-sm font-bold border border-emerald-700/50 bg-emerald-900/40 text-emerald-300 hover:bg-emerald-900/60 transition-colors shadow-lg"
+              className="px-8 py-3 rounded-xl text-base font-bold bg-[#8B5CF6] text-white hover:bg-[#7c3aed] transition-all duration-200 shadow-[0_0_20px_rgba(139,92,246,0.4)] hover:shadow-[0_0_30px_rgba(139,92,246,0.6)]"
             >
-              {/* ✅ 수정: 버튼 텍스트를 지시사항에 맞춰 알맞게 변경했습니다. */}
               다음 (참고 음악 선택) →
             </button>
         </div>
@@ -165,4 +169,3 @@ export default function Concept() {
     </div>
   );
 }
-
