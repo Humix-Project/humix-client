@@ -245,9 +245,9 @@ export default function CreateMusic() {
       duration_seconds: ver.durationSec,
     };
     console.log("POST /api/v1/upload/humming", body);
-    
+
     // ◀ navigate를 사용하여 페이지 이동
-    navigate("/MelodyEdit"); 
+    navigate("/MelodyEdit");
   }
 
   const hasVersions = versions.length > 0;
@@ -257,19 +257,25 @@ export default function CreateMusic() {
     <div className="min-h-screen bg-[#0d0d10] text-white flex flex-col">
       {/* ── Stepper 헤더 ── */}
       <div
-        className="w-full border-b px-8 py-4 flex items-center gap-8"
+        className=" ml-12 mr-12 border-b px-8 py-4 flex items-center gap-8"
         style={{ background: "#1A1D24", borderColor: "rgba(255,255,255,0.08)" }}
       >
-        <span className="text-sm font-semibold text-white shrink-0">
-          허밍 녹음
-        </span>
         <div className="flex-1 flex justify-center">
           <Stepper currentStep={1} />
         </div>
         <div className="w-24 shrink-0" />
       </div>
 
-      <div className="flex-1 flex flex-col items-center px-6 py-8 w-full max-w-4xl mx-auto gap-5">
+      <div className="mb-1 ml-12 mt-10 flex flex-col gap-5">
+        <div>
+          <h1 className=" text-2xl font-bold text-white mb-2">허밍 녹음</h1>
+          <p className="text-sm text-gray-500">
+            떠오르는 음을 마이크에 허밍으로 녹음해보세요. 최대 60초까지 녹음할
+            수 있습니다.
+          </p>
+        </div>
+      </div>
+      <div className="flex-1 flex flex-col items-center  py-6 w-full max-w-6xl mx-auto">
         {/* ── 녹음 카드 ── */}
         <div
           className="w-full rounded-2xl p-8 flex flex-col items-center gap-5"
@@ -290,13 +296,13 @@ export default function CreateMusic() {
                 recordState === "recording"
                   ? "linear-gradient(135deg, #ec4899, #a855f7)"
                   : recordState === "done"
-                    ? "linear-gradient(135deg, #6366f1, #7c3aed)" 
+                    ? "linear-gradient(135deg, #6366f1, #7c3aed)"
                     : "linear-gradient(135deg, #7c3aed, #a855f7)",
               boxShadow:
                 recordState === "recording"
                   ? "0 0 0 0 rgba(236,72,153,0.4), 0 0 40px rgba(168,85,247,0.5)"
                   : recordState === "done"
-                    ? "0 0 30px rgba(124,58,237,0.45)" 
+                    ? "0 0 30px rgba(124,58,237,0.45)"
                     : "0 0 24px rgba(139,92,246,0.35)",
               animation:
                 recordState === "recording"
@@ -618,8 +624,7 @@ export default function CreateMusic() {
                           }
                           className="flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                           style={{
-                            background:
-                              "linear-gradient(135deg,#ec4899,#a855f7)",
+                            background: "hsl(288, 71%, 73%)",
                             color: "white",
                             boxShadow: "0 2px 16px rgba(236,72,153,0.3)",
                           }}
@@ -659,11 +664,8 @@ export default function CreateMusic() {
         {selectedVer && (
           <button
             onClick={handleNext}
-            className="w-full py-3.5 rounded-xl font-bold text-sm transition-all duration-200 hover:scale-[1.01] active:scale-95"
-            style={{
-              background: "linear-gradient(135deg, #7c3aed, #a855f7)",
-              boxShadow: "0 4px 24px rgba(139,92,246,0.4)",
-            }}
+            className="w-full py-3.5 rounded-xl font-bold text-sm   hover:scale-[1.01] active:scale-95
+            bg-[#8B5CF6] hover:bg-[#7C3AED] text-white shadow-lg shadow-[#8B5CF6]/30 transition-all duration-200"
           >
             다음 단계: 멜로디 편집 → &nbsp;
             <span className="opacity-60 font-normal">
