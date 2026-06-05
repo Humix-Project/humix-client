@@ -181,19 +181,21 @@ export default function Sidebar() {
         ))}
       </div>
 
-      {/* ── 최하단 고정 투명 로그인 유저 정보 카드 ── */}
+{/* ── 최하단 고정 투명 로그인 유저 정보 카드 ── */}
       {/* 이후에 user변수 생성 필요 */}
-      <div className="px-4 pb-4 pt-2 ">
+      {/* ✅ 수정: px-4 → px-2로 줄여 접혔을 때 동그라미 짤림 방지 */}
+      <div className="px-2 pb-4 pt-2">
         {/* ✅ 추가: 유저 정보 박스 위에 영상처럼 얇은 선(border) 추가 */}
         <div className="border-t border-white/10 mb-3 w-full"></div>
 
         {/* ✅ 수정: 영역을 클릭할 수 있는 네모 박스(button) 형태로 변경하여 hover 효과를 주었습니다. */}
+        {/* ✅ 수정: 접혔을 때 동그라미 중앙 정렬 + 텍스트 완전히 숨김 처리 */}
         <button
           title={!isOpen ? `${user.name} (${user.plan})` : undefined}
           className={`
-            w-full flex items-center gap-3 rounded-xl transition-all duration-300 overflow-hidden text-left
+            flex items-center gap-3 rounded-xl transition-all duration-300 text-left
             hover:bg-white/10 active:bg-white/5
-            ${isOpen ? "p-2.5" : "p-0 bg-transparent hover:bg-transparent justify-center"}
+            ${isOpen ? "w-full p-2.5" : "w-full p-2 justify-center"}
           `}
         >
           <div
@@ -208,20 +210,18 @@ export default function Sidebar() {
             {user.name.charAt(0)}
           </div>
 
-          <div
-            className={`
-              flex flex-col flex-1 min-w-0 transition-all duration-200
-              ${isOpen ? "opacity-100 w-auto" : "opacity-0 w-0 overflow-hidden"}
-            `}
-          >
-            {/* ✅ 수정: 글자 크기를 영상에 맞게 약간 키우고 정돈했습니다. */}
-            <span className="text-white text-sm font-semibold tracking-wide truncate">
-              {user.name}
-            </span>
-            <span className="text-white/40 text-[11px] mt-0.5 font-medium">
-              {user.plan}
-            </span>
-          </div>
+          {/* ✅ 수정: 접혔을 때 텍스트 영역 완전히 숨김 (isOpen 조건부 렌더링으로 교체) */}
+          {isOpen && (
+            <div className="flex flex-col flex-1 min-w-0">
+              {/* ✅ 수정: 글자 크기를 영상에 맞게 약간 키우고 정돈했습니다. */}
+              <span className="text-white text-sm font-semibold tracking-wide truncate">
+                {user.name}
+              </span>
+              <span className="text-white/40 text-[11px] mt-0.5 font-medium">
+                {user.plan}
+              </span>
+            </div>
+          )}
 
           {/* ✅ 삭제: 우측에 있던 톱니바퀴 아이콘을 제거했습니다. */}
         </button>

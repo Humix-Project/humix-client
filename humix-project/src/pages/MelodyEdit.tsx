@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom'; 
-import Stepper from '../components/Stepper'; // 경로에 맞게 확인해주세요
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import Stepper from "../components/Stepper"; // 경로에 맞게 확인해주세요
 
 // ── API 응답 타입 정의 ─────────────────────────────────────────
 type MelodyVector = {
@@ -10,9 +10,9 @@ type MelodyVector = {
 };
 
 export default function MelodyEditorPage() {
-  const navigate = useNavigate(); 
+  const navigate = useNavigate();
 
-  const [activeTool, setActiveTool] = useState<'edit'>('edit');
+  const [activeTool, setActiveTool] = useState<"edit">("edit");
   const [isSnapEnabled, setIsSnapEnabled] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
 
@@ -26,15 +26,15 @@ export default function MelodyEditorPage() {
       setIsLoading(true);
       try {
         // 임시 테스트용 ID (실제 연동 시에는 이전 페이지에서 넘겨받은 ID 사용)
-        const humming_id = 3; 
-        
+        const humming_id = 3;
+
         const response = await fetch(`/api/v1/hummings/${humming_id}/digital`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           // 명세서에 Body가 비어있다고 되어있으므로 생략하거나 빈 객체 전달
-          body: JSON.stringify({}), 
+          body: JSON.stringify({}),
         });
 
         if (response.ok) {
@@ -58,11 +58,11 @@ export default function MelodyEditorPage() {
     <div className="min-h-screen bg-[#0B0C10] text-gray-200 p-8 font-sans">
       <div className="max-w-6xl mx-auto">
         {/* Stepper 적용 (현재 단계: 2. 편집) */}
-          <div className="w-full bg-[#1A1D24] rounded-lg p-5 border border-gray-800 shadow-sm flex items-center justify-center">
-            <Stepper currentStep={2} />
-          </div>
-            <br></br>
-        
+        <div className="w-full bg-[#1A1D24] rounded-lg p-5 border border-gray-800 shadow-sm flex items-center justify-center">
+          <Stepper currentStep={2} />
+        </div>
+        <br></br>
+
         {/* 상단 타이틀 및 상태바 영역 */}
         <div className="mb-6 flex flex-col gap-5">
           <div>
@@ -75,58 +75,65 @@ export default function MelodyEditorPage() {
 
         {/* 메인 에디터 영역 */}
         <div className="bg-[#15171C] border border-gray-800 rounded-xl p-5 shadow-xl">
-          
           {/* 툴바 (상단 컨트롤) */}
           <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-4">
-              
-              {/* 도구 선택 버튼 그룹 (점 편집, 재생, 초기화) */}
-              <div className="flex bg-[#0B0C10] rounded-lg p-1 border border-gray-800">
+            <div className="flex items-center gap-6">
+              {/* ✅ 수정됨: 도구 선택 버튼 그룹 (보라색 네온 아웃라인 스타일 적용) */}
+              <div className="flex items-center gap-3">
                 <button
-                  onClick={() => setActiveTool('edit')}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm transition-colors ${
-                    activeTool === 'edit' ? 'bg-[#8B5CF6] text-white' : 'text-gray-400 hover:text-white'
+                  onClick={() => setActiveTool("edit")}
+                  className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    activeTool === "edit"
+                      ? "border border-[#8B5CF6] bg-[#8B5CF6]/10 text-[#a78bfa] shadow-[0_0_12px_rgba(139,92,246,0.2)]"
+                      : "border border-gray-700/60 bg-transparent text-gray-400 hover:border-[#8B5CF6]/70 hover:text-[#a78bfa] hover:bg-[#8B5CF6]/5"
                   }`}
                 >
                   <span>🎯</span> 점 편집
                 </button>
+
                 <button
                   onClick={() => setIsPlaying(!isPlaying)}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm transition-colors ${
-                    isPlaying ? 'bg-emerald-600/80 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                  className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    isPlaying
+                      ? "border border-[#8B5CF6] bg-[#8B5CF6]/10 text-[#a78bfa] shadow-[0_0_12px_rgba(139,92,246,0.2)]"
+                      : "border border-gray-700/60 bg-transparent text-gray-400 hover:border-[#8B5CF6]/70 hover:text-[#a78bfa] hover:bg-[#8B5CF6]/5"
                   }`}
                 >
-                  <span>{isPlaying ? '⏸️' : '▶️'}</span> {isPlaying ? '정지' : '재생'}
+                  <span>{isPlaying ? "⏸️" : "▶️"}</span>{" "}
+                  {isPlaying ? "정지" : "재생"}
                 </button>
+
                 <button
-                  onClick={() => console.log('캔버스 초기화')}
-                  className="flex items-center gap-2 px-4 py-1.5 rounded-md text-sm transition-colors text-gray-400 hover:text-white hover:bg-gray-800/50"
+                  onClick={() => console.log("캔버스 초기화")}
+                  className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all duration-200 border border-gray-700/60 bg-transparent text-gray-400 hover:border-[#8B5CF6]/70 hover:text-[#a78bfa] hover:bg-[#8B5CF6]/5"
                 >
-                  <span>↺</span> 초기화
+                  <span className="text-lg leading-none mb-0.5">↺</span> 초기화
                 </button>
               </div>
 
               {/* 음계 스냅 토글 */}
-              <div className="flex items-center gap-2 ml-4">
-                <button 
+              <div className="flex items-center gap-2 border-l border-gray-800 pl-6">
+                <button
                   onClick={() => setIsSnapEnabled(!isSnapEnabled)}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    isSnapEnabled ? 'bg-[#8B5CF6]' : 'bg-gray-600'
+                    isSnapEnabled ? "bg-[#8B5CF6]" : "bg-gray-600"
                   }`}
                 >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    isSnapEnabled ? 'translate-x-6' : 'translate-x-1'
-                  }`} />
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      isSnapEnabled ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
                 </button>
                 <span className="text-sm text-gray-300">음계 스냅</span>
               </div>
             </div>
 
-            {/* 우측 액션 버튼 */}
+            {/* ✅ 수정됨: 우측 액션 버튼 (꽉 찬 보라색 솔리드 스타일 적용) */}
             <div className="flex items-center gap-3">
-              <button 
-                onClick={() => navigate('/concept')}
-                className="px-5 py-1.5 rounded-lg text-sm border border-emerald-700/50 bg-emerald-900/20 text-emerald-400 hover:bg-emerald-900/40 transition-colors shadow-sm"
+              <button
+                onClick={() => navigate("/concept")}
+                className="px-8 py-3 rounded-xl text-base font-bold bg-[#8B5CF6] text-white hover:bg-[#7c3aed] transition-all duration-200 shadow-[0_0_20px_rgba(139,92,246,0.4)] hover:shadow-[0_0_30px_rgba(139,92,246,0.6)]"
               >
                 완료 →
               </button>
@@ -135,19 +142,23 @@ export default function MelodyEditorPage() {
 
           {/* 캔버스 (에디터) 영역 */}
           <div className="relative w-full h-[500px] bg-[#0B0C10] border border-gray-800 rounded-lg overflow-hidden">
-            
             {/* 가이드라인 (임시 UI) */}
             <div className="absolute inset-0 flex flex-col justify-between py-8 opacity-20 pointer-events-none">
-              {['C5', 'A4', 'F4', 'D4', 'C4'].map((note) => (
-                <div key={note} className="w-full border-t border-gray-500 relative">
-                  <span className="absolute -top-3 left-4 text-xs text-gray-400">{note}</span>
+              {["C5", "A4", "F4", "D4", "C4"].map((note) => (
+                <div
+                  key={note}
+                  className="w-full border-t border-gray-500 relative"
+                >
+                  <span className="absolute -top-3 left-4 text-xs text-gray-400">
+                    {note}
+                  </span>
                 </div>
               ))}
             </div>
 
             {/* ◀ 추가: melodyVectors 변수를 화면에 렌더링하여 미사용 에러 해결 및 데이터 로드 상태 시각적 확인 */}
             {!isLoading && melodyVectors.length > 0 && (
-              <div className="absolute top-3 right-4 text-xs text-emerald-400/70 z-20 pointer-events-none">
+              <div className="absolute top-3 right-4 text-xs text-purple-400/70 z-20 pointer-events-none">
                 ✓ 데이터 로드 완료 (노트 {melodyVectors.length}개)
               </div>
             )}
@@ -158,14 +169,14 @@ export default function MelodyEditorPage() {
                 데이터를 불러오는 중...
               </div>
             ) : (
-              <canvas 
-                id="melody-canvas" 
+              <canvas
+                id="melody-canvas"
                 className="w-full h-full cursor-crosshair relative z-10"
               ></canvas>
             )}
 
             {/* 시간축 가이드 (하단) */}
-            <div className="absolute bottom-0 left-0 w-full h-8 flex items-center justify-between px-4 text-xs text-gray-600 border-t border-gray-800 bg-[#0B0C10]/80">
+            <div className="absolute bottom-0 left-0 w-full h-8 flex items-center justify-between px-4 text-xs text-gray-600 border-t border-gray-800 bg-[#0B0C10]/80 z-20">
               <span>0s</span>
               <span>2s</span>
               <span>4s</span>
@@ -173,7 +184,6 @@ export default function MelodyEditorPage() {
               <span>8s</span>
             </div>
           </div>
-
         </div>
       </div>
     </div>
