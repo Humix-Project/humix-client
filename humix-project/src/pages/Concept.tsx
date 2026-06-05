@@ -45,17 +45,9 @@ export default function Concept() {
   // ✅ Zustand 스토어에서 데이터 저장 함수 꺼내오기
   const setConcept = useConceptStore((state) => state.setConcept);
 
-  // 분위기 선택/해제 핸들러 (최대 3개 선택)
+  // ✅ 수정: 분위기 선택 핸들러 (무조건 1개만 선택되도록 배열을 덮어씌움)
   const handleMoodToggle = (moodId: MoodId) => {
-    setSelectedMoods((prev) => {
-      const isSelected = prev.includes(moodId);
-      if (isSelected) {
-        return prev.filter((id) => id !== moodId);
-      } else if (prev.length < 3) {
-        return [...prev, moodId];
-      }
-      return prev; // 3개 이상일 경우 변경하지 않음
-    });
+    setSelectedMoods([moodId]);
   };
 
   // ✅ 다음 페이지로 넘어가는 핸들러 함수
@@ -81,10 +73,9 @@ export default function Concept() {
         <div className="mb-10">
           <h1 className="text-2xl font-bold text-white mb-2">컨셉 설정</h1>
           <p className="text-sm text-gray-500">
-            장르와 분위기를 선택하세요 (장르 1개 필수)
+            장르와 분위기를 선택하세요
           </p>
         </div>
-
 
         {/* 메인 콘텐츠 영역 */}
         <div className="bg-[#15171C] border border-gray-800 rounded-xl p-5 md:p-8 shadow-xl flex flex-col gap-12">
@@ -95,7 +86,6 @@ export default function Concept() {
                 <h2 className="text-lg font-semibold text-white">
                 장르 선택 <span className="text-purple-400 font-bold ml-1">▪︎ 필수 (1개)</span>
                 </h2>
-                <p className="text-xs text-gray-500 mt-1">장르별 선율 변환 규칙(Yin-Yang 프레임워크)이 적용됩니다.</p>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {genres.map((genre) => {
@@ -126,10 +116,10 @@ export default function Concept() {
           {/* 분위기 선택 섹션 */}
           <div>
             <div className="mb-5">
+                {/* ✅ 수정: 필수 (1개) 텍스트로 변경 */}
                 <h2 className="text-lg font-semibold text-white">
-                분위기 선택 <span className="text-gray-400 font-medium ml-1">({selectedMoods.length}/3)</span>
+                분위기 선택 <span className="text-purple-400 font-bold ml-1">▪︎ 필수 (1개)</span>
                 </h2>
-                <p className="text-xs text-gray-500 mt-1">V-A(Valence-Arousal) 모델 기반 — BPM·조성·리듬·밀도 자동 조정</p>
             </div>
             <div className="flex flex-wrap gap-3">
               {moods.map((mood) => {
@@ -156,7 +146,6 @@ export default function Concept() {
         
         {/* 하단 네비게이션 버튼 */}
         <div className="mt-8 flex justify-end">
-            {/* ✅ 수정: 첨부해주신 꽉 찬 보라색 버튼 디자인으로 변경 */}
             <button 
               onClick={handleNextStep}
               className="px-8 py-3 rounded-xl text-base font-bold bg-[#8B5CF6] text-white hover:bg-[#7c3aed] transition-all duration-200 shadow-[0_0_20px_rgba(139,92,246,0.4)] hover:shadow-[0_0_30px_rgba(139,92,246,0.6)]"
