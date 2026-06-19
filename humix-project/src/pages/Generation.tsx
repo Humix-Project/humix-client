@@ -74,6 +74,9 @@ interface ModVersion {
   id: number | string;
   prompt: string;    // 사용자가 입력한 수정 프롬프트
   isActive: boolean; // 현재 적용 중인 버전 여부
+  // ✅ 추가: 메인 플레이어와 연동하기 위해 오디오 관련 정보를 추가했습니다.
+  audioUrl?: string; 
+  durationStr?: string;
 }
 
 export default function Generation() {
@@ -84,7 +87,7 @@ export default function Generation() {
 
   // ── AI 수정 패널 상태 ─────────────────────────────────────────────────────
   const [isModifyOpen, setIsModifyOpen] = useState(false);   // 패널 열림/닫힘
-  const [modPrompt, setModPrompt] = useState('');             // 입력 중인 프롬프트
+  const [modPrompt, setModPrompt] = useState('');            // 입력 중인 프롬프트
   const [isModGenerating, setIsModGenerating] = useState(false); // 수정 생성 중 여부
   const [modVersions, setModVersions] = useState<ModVersion[]>([]); // 수정 버전 히스토리
 
@@ -92,6 +95,11 @@ export default function Generation() {
   // const [audioUrl, setAudioUrl] = useState<string | null>(null);
   // TODO: [API-1] 반환된 task_id 저장
   // const [taskId, setTaskId] = useState<string | null>(null);
+
+  // ✅ 추가: 현재 활성화된(isActive가 true인) 버전을 찾는 변수 선언
+  const activeVersion = modVersions.find((v) => v.isActive);
+  // ✅ 추가: 현재 활성화된 버전이 히스토리 배열에서 몇 번째 인덱스인지 계산합니다.
+  const activeIndex = modVersions.findIndex((v) => v.isActive);
 
   // ── AI 생성 시작 핸들러 ────────────────────────────────────────────────────
   const handleGenerate = () => {
@@ -127,7 +135,7 @@ export default function Generation() {
     //      setAudioUrl(data.result.audio_url);
     //      setStatus('done');
     //      // ✅ 추가: 실제 API 연결 시에도 완료되면 '원본' 버전을 히스토리에 먼저 세팅해주세요.
-    //      // setModVersions([{ id: 'original', prompt: '최초 생성된 원본 곡입니다.', isActive: true }]);
+    //      // setModVersions([{ id: 'original', prompt: '최초 생성된 원본 곡입니다.', isActive: true, audioUrl: data.result.audio_url, durationStr: '1:45' }]);
     //      eventSource.close();
     //    });
     //    eventSource.onerror = () => {
@@ -158,6 +166,9 @@ export default function Generation() {
           id: 'original',
           prompt: '최초 생성된 원본 곡입니다.',
           isActive: true,
+          // ✅ 추가: 최초 생성 시 가상의 오디오 정보를 넣어줍니다.
+          audioUrl: 'https://dummy-original-audio.url',
+          durationStr: '1:45',
         }
       ]);
     }, 5000);
@@ -166,18 +177,21 @@ export default function Generation() {
 
   // ── 재생/정지 핸들러 ───────────────────────────────────────────────────────
   const handlePlayToggle = () => {
-    // TODO: Web Audio API 또는 <audio> 태그로 audioUrl 재생/정지
+    // ✅ 수정: 재생 시 현재 활성화된 버전의 오디오 URL을 사용해야 함을 명시
+    // TODO: Web Audio API 또는 <audio> 태그로 activeVersion.audioUrl 재생/정지
+    console.log(`현재 재생 시도 중인 버전 ID: ${activeVersion?.id}`);
     setIsPlaying((prev) => !prev);
   };
 
   // ── 다운로드 핸들러 ────────────────────────────────────────────────────────
   const handleDownload = () => {
-    // TODO: audioUrl로 파일 다운로드
+    // ✅ 수정: 다운로드 시 현재 활성화된 버전의 데이터를 사용하도록 연결
+    // TODO: activeVersion.audioUrl 파일 다운로드
     // const a = document.createElement('a');
-    // a.href = audioUrl!;
-    // a.download = 'humix_generated.wav';
+    // a.href = activeVersion?.audioUrl!;
+    // a.download = `humix_generated_${activeVersion?.id}.wav`;
     // a.click();
-    console.log('다운로드');
+    console.log(`[다운로드] 현재 활성 버전 ID: ${activeVersion?.id}, URL: ${activeVersion?.audioUrl}`);
   };
 
   // ── AI 수정 요청 핸들러 ────────────────────────────────────────────────────
@@ -204,11 +218,19 @@ export default function Generation() {
 
     // ── [임시] 수정 생성 시뮬레이션 (API 연결 전 UI 확인용) ──────────────────
     setTimeout(() => {
+      const newId = Date.now();
       setModVersions((prev) => [
         // 기존 버전은 모두 비활성화
         ...prev.map((v) => ({ ...v, isActive: false })),
         // 새 버전 추가 (현재 버전으로 설정)
-        { id: Date.now(), prompt, isActive: true },
+        { 
+          id: newId, 
+          prompt, 
+          isActive: true,
+          // ✅ 추가: 수정된 버전에 대한 가상의 오디오 정보 부여
+          audioUrl: `https://dummy-modified-audio-${newId}.url`,
+          durationStr: '1:48', 
+        },
       ]);
       setIsModGenerating(false);
     }, 3000);
@@ -222,6 +244,8 @@ export default function Generation() {
     setModVersions((prev) =>
       prev.map((v) => ({ ...v, isActive: v.id === id }))
     );
+    // ✅ 추가: 버전을 바꿀 때 재생 중이던 음악을 정지시키는 로직
+    setIsPlaying(false);
   };
 
   // ── 렌더링 ────────────────────────────────────────────────────────────────
@@ -310,11 +334,16 @@ export default function Generation() {
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="text-base font-bold text-white flex items-center gap-2">
-                      <span>🎉</span> 생성 완료!
+                      <span>🎉</span> 
+                      {/* ✅ 수정: 사용자가 인지하기 쉽도록 현재 활성화된 인덱스를 판별해 타이틀 텍스트를 동적으로 출력합니다. */}
+                      {activeIndex === 0 
+                        ? '버전 1 (원본) 생성 완료!' 
+                        : `버전 ${activeIndex + 1} 생성 완료!`}
                     </p>
+                    {/* ✅ 수정: 오디오 파일명 규칙도 텍스트 상단 타이틀 번호(v1, v2...)와 일치하도록 연동했습니다. */}
                     {/* TODO: 실제 파일명과 재생 시간으로 교체 (audio_url, duration_seconds) */}
                     <p className="text-xs text-gray-500 mt-0.5">
-                      humix_generated.wav · 1:45
+                      humix_v{activeIndex + 1}.wav · {activeVersion?.durationStr || '0:00'}
                     </p>
                   </div>
 
@@ -350,7 +379,8 @@ export default function Generation() {
                 {/* 타임라인 */}
                 <div className="flex justify-between text-xs text-gray-600 px-1">
                   <span>0:00</span>
-                  <span>1:45</span>
+                  {/* ✅ 수정: 타임라인 끝 시간도 활성화된 버전에 맞게 연동 */}
+                  <span>{activeVersion?.durationStr || '1:45'}</span>
                 </div>
 
                 {/* 재생 / 다운로드 버튼 */}
