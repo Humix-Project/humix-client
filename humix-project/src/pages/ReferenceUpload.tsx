@@ -23,21 +23,26 @@ import { useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import Stepper from "../components/Stepper";
 
+// 🔌 API 연결 보류: 아래 타입/상수/함수들은 참고 음악 업로드 API용으로 작성했으나,
+//                 백엔드 미준비로 API 호출 코드 자체가 주석 처리되어 현재는 어디서도 쓰이지 않음.
+//                 빌드 시 TS6133/TS6196(미사용 선언) 에러가 나는 것을 막기 위해 임시로 export 처리.
+//                 백엔드 연동 재개 시 export 키워드를 떼고 정상적으로 사용하면 됨.
+
 // 🔌 API 연결: API 응답 Envelope 공통 타입 ({ code, message, data } 패턴, API 명세서 3.4 참고)
-interface ApiEnvelope<T> {
+export interface ApiEnvelope<T> {
   code: number;
   message: string;
   data: T;
 }
 
 // 🔌 API 연결: [API-1] presigned URL 발급 응답 타입 (API 명세서 3.4.1.3)
-interface PresignedUrlResponse {
+export interface PresignedUrlResponse {
   presigned_url: string;
   file_key: string;
 }
 
 // 🔌 API 연결: [API-3] 참조곡 DB 저장 응답 타입 (API 명세서 3.4.1.5)
-interface ReferenceTrackResponse {
+export interface ReferenceTrackResponse {
   reference_track_id: number;
   audio_name: string;
   file_url: string;
@@ -69,9 +74,10 @@ export default function ReferenceUpload() {
   const ACCEPTED_TYPES = ["audio/mpeg", "audio/wav"];
   const MAX_SIZE_MB = 50;
 
-  // 🔌 API 연결: API Base URL
+  // 🔌 API 연결 보류: API Base URL. 참고 음악 업로드 API가 비활성화되어 있어 현재는 사용되지 않음.
   // TODO: 실제 배포 시 .env (VITE_API_BASE_URL 등)로 분리할 것
   const API_BASE_URL = "/api/v1";
+  void API_BASE_URL;
 
   // 🔌 API 연결 보류: 인증 토큰 가져오기. 현재 업로드 API가 비활성화되어 있어 호출되지 않음.
   // TODO: 인증 연동 전이라 임시로 비워둠. 인증 플로우(3.4.1.1 guest-login 등) 연결 후
@@ -80,6 +86,7 @@ export default function ReferenceUpload() {
     // TODO: 예) return useAuthStore.getState().accessToken;
     return null;
   };
+  void getAccessToken;
 
   // ── 파일 유효성 검사 & 업로드 처리 ─────────────────────────────────────────
   const handleFile = useCallback((file: File) => {

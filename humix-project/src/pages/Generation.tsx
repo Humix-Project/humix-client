@@ -136,11 +136,24 @@ export default function Generation() {
   const [modVersions, setModVersions] = useState<ModVersion[]>([]); // 수정 버전 히스토리
 
   // 🔌 API 연결: [API-2] SSE로 받은 audio_url 저장
+  // 비고: 현재는 modVersions 배열 안에 동일한 audioUrl이 버전별로 저장되어 화면 표시는
+  //       activeVersion.audioUrl 쪽에서 처리함. 이 state 자체는 곡 생성 완료 시점의 "최초 원본 URL"을
+  //       별도로 보관해두기 위한 용도(추후 원본 비교/복구 기능 등에 사용 예정)라 일단 set만 하고 읽지는 않음.
+  //       빌드 시 TS6133(미사용 변수) 에러 방지를 위해 void로 의도적 보관임을 명시.
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  void audioUrl;
+
   // 🔌 API 연결: [API-1] 반환된 task_id 저장
+  // 비고: 현재 UI에서 직접 읽지는 않지만, 추후 "생성 취소" 기능(API 명세서 3.4.1.9,
+  //       DELETE /api/v1/generation/songs/tasks/{task_id}) 연결 시 필요해 미리 보관해둠.
   const [taskId, setTaskId] = useState<string | null>(null);
-  // 🔌 API 연결: completed 응답에 포함된 song_id 저장 (AI 수정 요청 시 URL 파라미터로 필요, API 명세서 3.4.1.10)
+  void taskId;
+
+  // 🔌 API 연결: complete 응답에 포함된 song_id 저장 (AI 수정 요청 시 URL 파라미터로 필요, API 명세서 3.4.1.10)
+  // 비고: AI 수정 API가 현재 비활성화(주석 처리)되어 있어 당장은 읽는 곳이 없음.
+  //       AI 수정 기능 재활성화 시 handleModSubmit 내부에서 사용됨.
   const [songId, setSongId] = useState<number | null>(null);
+  void songId;
 
   // ✅ 추가: 현재 활성화된(isActive가 true인) 버전을 찾는 변수 선언
   const activeVersion = modVersions.find((v) => v.isActive);
