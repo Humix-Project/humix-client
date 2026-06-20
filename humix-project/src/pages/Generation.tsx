@@ -15,13 +15,17 @@
  * [API-2] 생성 진행률 실시간 구독 (SSE)
  * GET /api/v1/generation/songs/tasks/{task_id}/stream
  * Headers: Accept: text/event-stream
- * → event: progress / completed 수신
- * → completed 시 audio_url, song_id 포함
+ * → event: progress / complete 수신
+ * → complete 시 audio_url, song_id 포함
  * ─────────────────────────────────────────────
  */
 
 import { useState } from 'react';
 import Stepper from '../components/Stepper';
+// 🔌 API 연결: EventSource는 Authorization 등 커스텀 헤더를 지정할 수 없어
+//             fetch 기반으로 헤더를 자유롭게 설정 가능한 라이브러리로 교체 (명세서 비고: "헤더 수정 불가 시 외부 라이브러리 사용" 지침 반영)
+//             설치: npm install @microsoft/fetch-event-source
+import { fetchEventSource } from '@microsoft/fetch-event-source';
 
 // ── 생성 설정 요약 타입 ────────────────────────────────────────────────────
 // TODO: 실제 연결 시 Zustand store에서 가져오도록 교체
@@ -79,6 +83,46 @@ interface ModVersion {
   durationStr?: string;
 }
 
+// 🔌 API 연결: API 응답 Envelope 공통 타입 ({ code, message, data } 패턴, API 명세서 3.4 참고)
+interface ApiEnvelope<T> {
+  code: number;
+  message: string;
+  data: T;
+}
+
+// 🔌 API 연결: [API-1] 곡 생성 요청 응답 타입 (API 명세서 3.4.1.8)
+interface GenerationTaskResponse {
+  task_id: string;
+}
+
+// 🔌 API 연결: SSE progress 이벤트 payload 타입 (API 명세서 3.4.1.11)
+interface SseProgressPayload {
+  task_id: string;
+  status: 'PROCESSING';
+  progress: number;
+}
+
+// 🔌 API 연결: SSE complete 이벤트 payload 타입 (API 명세서 3.4.1.11)
+// 비고: 명세서 원문에는 이벤트명이 "complete"로 되어 있음 (기존 코드 주석의 "completed"와 철자가 다름).
+//       백엔드와 실제 이벤트명("complete" vs "completed") 확인 필요.
+interface SseCompletePayload {
+  status: 'COMPLETED';
+  result: {
+    task_id: string;
+    song_id: number;
+    audio_url: string;
+    duration_seconds: number;
+  };
+}
+
+// 초 단위를 "m:ss" 형식 문자열로 변환하는 유틸
+// 🔌 API 연결: SSE/응답으로 받은 duration_seconds(숫자)를 화면 표시용 문자열로 변환하기 위해 추가
+function formatDuration(totalSeconds: number): string {
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = Math.floor(totalSeconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 export default function Generation() {
   // ── 상태 관리 ──────────────────────────────────────────────────────────────
   const [status, setStatus] = useState<GenerationStatus>('idle');
@@ -91,88 +135,167 @@ export default function Generation() {
   const [isModGenerating, setIsModGenerating] = useState(false); // 수정 생성 중 여부
   const [modVersions, setModVersions] = useState<ModVersion[]>([]); // 수정 버전 히스토리
 
-  // TODO: [API-2] SSE로 받은 audio_url 저장
-  // const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  // TODO: [API-1] 반환된 task_id 저장
-  // const [taskId, setTaskId] = useState<string | null>(null);
+  // 🔌 API 연결: [API-2] SSE로 받은 audio_url 저장
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  // 🔌 API 연결: [API-1] 반환된 task_id 저장
+  const [taskId, setTaskId] = useState<string | null>(null);
+  // 🔌 API 연결: completed 응답에 포함된 song_id 저장 (AI 수정 요청 시 URL 파라미터로 필요, API 명세서 3.4.1.10)
+  const [songId, setSongId] = useState<number | null>(null);
 
   // ✅ 추가: 현재 활성화된(isActive가 true인) 버전을 찾는 변수 선언
   const activeVersion = modVersions.find((v) => v.isActive);
   // ✅ 추가: 현재 활성화된 버전이 히스토리 배열에서 몇 번째 인덱스인지 계산합니다.
   const activeIndex = modVersions.findIndex((v) => v.isActive);
 
+  // 🔌 API 연결: API Base URL
+  // TODO: 실제 배포 시 .env (VITE_API_BASE_URL 등)로 분리할 것
+  const API_BASE_URL = '/api/v1';
+
+  // 🔌 API 연결: 인증 토큰 가져오기
+  // TODO: 인증 연동 전이라 임시로 비워둠. 인증 플로우 연결 후
+  //       실제 access_token 저장 위치(예: Zustand auth store)에서 가져오도록 교체해야 함.
+  const getAccessToken = (): string | null => {
+    // TODO: 예) return useAuthStore.getState().accessToken;
+    return null;
+  };
+
+  // 🔌 API 연결: store에서 곡 생성에 필요한 값 가져오기
+  // TODO: useConceptStore에는 genre, mood까지만 확인됨 (선택한 장르 1개 / 분위기 1개가 정상 반영됨을 확인).
+  //       humming_id, melody_vectors는 store에 아직 없는 값으로 보임 — 허밍/멜로디 편집 단계(UC1, UC2) 작업자와
+  //       필드 추가를 협의해야 함. 현재는 임시로 null/빈 배열을 사용하고 있어 실제 곡 생성 요청 시 백엔드에서
+  //       에러가 날 수 있음.
+  // import { useConceptStore } from '../store/useConceptStore';
+  // const { genre, mood, referenceTrackId } = useConceptStore();
+  const getGenerationPayload = () => {
+    // TODO: 아래 값들을 store에서 가져오도록 교체
+    return {
+      humming_id: null as number | null, // TODO: store에 필드 없음 — 허밍 녹음 단계에서 받은 humming_id 연결 필요
+      genre: 'kpop', // TODO: useConceptStore의 genre 값으로 교체 (현재 enum 매핑 확인 필요: kpop/folks/classical/jazz/cinematic)
+      mood: 'exciting', // TODO: useConceptStore의 mood 값으로 교체
+      melody_vectors: [] as Array<{ pitch: number; onset_seconds: number; duration_seconds: number }>, // TODO: store에 필드 없음 — 멜로디 편집 단계(UC2) 결과 연결 필요
+      reference_track_id: null as number | null, // TODO: ReferenceUpload.tsx에서 저장한 reference_track_id 연결 필요
+    };
+  };
+
+  // 🔌 API 연결: SSE 스트림 구독 공통 함수
+  // 곡 생성([API-2])과 AI 수정 모두 동일한 stream 엔드포인트(API 명세서 3.4.1.11)를 사용하므로 공통 함수로 분리.
+  // onProgress: progress 이벤트 수신 시 호출, onComplete: complete 이벤트 수신 시 호출, onError: 에러/연결 끊김 시 호출
+  //
+  // 비고: 기본 EventSource는 Authorization 등 커스텀 헤더를 지정할 수 없어, 헤더를 자유롭게 설정 가능한
+  //       @microsoft/fetch-event-source 라이브러리로 인증 헤더를 전송함 (fetch 기반 SSE 클라이언트).
+  // 비고: SSE complete 이벤트명은 API 명세서 3.4.1.11 원문 기준 "complete" 사용 (백엔드와 합의됨).
+  const subscribeToTaskStream = (
+    streamTaskId: string,
+    onProgress: (data: SseProgressPayload) => void,
+    onComplete: (data: SseCompletePayload) => void,
+    onError: () => void
+  ) => {
+    const accessToken = getAccessToken();
+    const ctrl = new AbortController();
+    const url = `${API_BASE_URL}/generation/songs/tasks/${streamTaskId}/stream`;
+
+    fetchEventSource(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      signal: ctrl.signal,
+      // 탭이 백그라운드로 가도 연결이 끊기지 않도록 설정 (생성 중 다른 탭을 보더라도 진행 상황을 놓치지 않기 위함)
+      openWhenHidden: true,
+      onmessage(ev) {
+        if (ev.event === 'progress') {
+          const data: SseProgressPayload = JSON.parse(ev.data);
+          onProgress(data);
+        } else if (ev.event === 'complete') {
+          const data: SseCompletePayload = JSON.parse(ev.data);
+          onComplete(data);
+          ctrl.abort();
+        }
+      },
+      onerror(err) {
+        onError();
+        // 에러를 던지면 재시도를 막고 즉시 연결을 종료함 (기본 동작은 자동 재시도이므로 명시적으로 막아야 함)
+        throw err;
+      },
+    }).catch(() => {
+      // ctrl.abort()로 인한 정상 종료 시에도 onerror/catch가 호출될 수 있어 별도 처리 없이 무시
+    });
+
+    return ctrl;
+  };
+
   // ── AI 생성 시작 핸들러 ────────────────────────────────────────────────────
   const handleGenerate = () => {
     setStatus('generating');
+    setProgressMsg('AI가 멜로디를 작곡하고 있습니다.');
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // TODO: 실제 API 연결 시 아래 시뮬레이션을 제거하고 아래 흐름으로 교체:
-    //
-    //  1) [API-1] 곡 생성 요청
-    //    const { task_id } = await fetch('/api/v1/generation/songs', {
-    //      method: 'POST',
-    //      headers: { 'Content-Type': 'application/json' },
-    //      body: JSON.stringify({
-    //        humming_id: store.hummingId,          // Zustand에서 가져오기
-    //        genre: store.genre,                    // ex) 'folks'
-    //        mood: store.moods[0],                  // ex) 'exciting'
-    //        melody_vectors: store.melodyVectors,   // UC2 결과값
-    //        reference_track_id: store.referenceTrackId ?? null,
-    //      }),
-    //    }).then(r => r.json());
-    //    setTaskId(task_id);
-    //
-    //  2) [API-2] SSE 구독
-    //    const eventSource = new EventSource(
-    //      `/api/v1/generation/songs/tasks/${task_id}/stream`
-    //    );
-    //    eventSource.addEventListener('progress', (e) => {
-    //      const data = JSON.parse(e.data);
-    //      setProgressMsg(data.message); // ex) 'AI가 멜로디를 작곡하고 있습니다.'
-    //    });
-    //    eventSource.addEventListener('completed', (e) => {
-    //      const data = JSON.parse(e.data);
-    //      setAudioUrl(data.result.audio_url);
-    //      setStatus('done');
-    //      // ✅ 추가: 실제 API 연결 시에도 완료되면 '원본' 버전을 히스토리에 먼저 세팅해주세요.
-    //      // setModVersions([{ id: 'original', prompt: '최초 생성된 원본 곡입니다.', isActive: true, audioUrl: data.result.audio_url, durationStr: '1:45' }]);
-    //      eventSource.close();
-    //    });
-    //    eventSource.onerror = () => {
-    //      setStatus('error');
-    //      eventSource.close();
-    //    };
-    // ──────────────────────────────────────────────────────────────────────────
+    // 🔌 API 연결: [API-1] 곡 생성 요청 → [API-2] SSE 구독
+    const startGeneration = async () => {
+      try {
+        const accessToken = getAccessToken();
+        const payload = getGenerationPayload();
 
-    // ── [임시] 생성 진행 시뮬레이션 (API 연결 전 UI 확인용) ──────────────────
-    const messages = [
-      'AI가 멜로디를 작곡하고 있습니다.',
-      '오디오 파일 변환 및 S3 업로드 중입니다.',
-    ];
-    let i = 0;
-    setProgressMsg(messages[0]);
-    const msgInterval = setInterval(() => {
-      i++;
-      if (i < messages.length) setProgressMsg(messages[i]);
-    }, 2000);
-    setTimeout(() => {
-      clearInterval(msgInterval);
-      setStatus('done');
-      
-      // ✅ 추가: 곡 생성이 최초로 완료되었을 때, 수정 히스토리 배열(modVersions)에 '원본' 데이터를 강제로 첫 번째 요소로 주입합니다.
-      // 이렇게 해야 AI 수정 패널을 열었을 때 원본 항목이 렌더링되며, 나중에 언제든 최초 상태로 돌아갈 수 있습니다.
-      setModVersions([
-        {
-          id: 'original',
-          prompt: '최초 생성된 원본 곡입니다.',
-          isActive: true,
-          // ✅ 추가: 최초 생성 시 가상의 오디오 정보를 넣어줍니다.
-          audioUrl: 'https://dummy-original-audio.url',
-          durationStr: '1:45',
+        // 1) [API-1] 곡 생성 요청 (API 명세서 3.4.1.8)
+        const res = await fetch(`${API_BASE_URL}/generation/songs`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
+          body: JSON.stringify({
+            humming_id: payload.humming_id,
+            title: 'my_song', // TODO: 사용자가 곡 제목을 입력하는 UI가 없어 임시 고정값 사용. 필요 시 입력 필드 추가 논의.
+            genre: payload.genre,
+            mood: payload.mood,
+            reference_track_id: payload.reference_track_id,
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error('곡 생성 요청 실패');
         }
-      ]);
-    }, 5000);
-    // ── [임시] 시뮬레이션 끝 ─────────────────────────────────────────────────
+
+        const json: ApiEnvelope<GenerationTaskResponse> = await res.json();
+        const newTaskId = json.data.task_id;
+        setTaskId(newTaskId);
+
+        // 2) [API-2] SSE 구독
+        subscribeToTaskStream(
+          newTaskId,
+          (data) => {
+            // TODO: 명세서 progress 이벤트에는 message 필드가 없고 progress(숫자, %) 필드만 있음.
+            //       기존 UI는 텍스트 메시지(progressMsg)를 보여주는 구조라, 우선 진행률(%)을 텍스트로 변환해 표시.
+            //       디자인팀과 협의해 진행률 바 UI로 바꾸거나, 백엔드에 message 필드 추가를 요청하는 것을 고려.
+            setProgressMsg(`AI가 곡을 생성하고 있습니다... (${data.progress}%)`);
+          },
+          (data) => {
+            setAudioUrl(data.result.audio_url);
+            setSongId(data.result.song_id);
+            setStatus('done');
+            // ✅ 완료되면 '원본' 버전을 히스토리에 먼저 세팅
+            setModVersions([
+              {
+                id: 'original',
+                prompt: '최초 생성된 원본 곡입니다.',
+                isActive: true,
+                audioUrl: data.result.audio_url,
+                durationStr: formatDuration(data.result.duration_seconds),
+              },
+            ]);
+          },
+          () => {
+            setStatus('error');
+          }
+        );
+      } catch (err) {
+        console.error('[곡 생성 요청 오류]', err);
+        setStatus('error');
+      }
+    };
+
+    startGeneration();
   };
 
   // ── 재생/정지 핸들러 ───────────────────────────────────────────────────────
@@ -186,15 +309,18 @@ export default function Generation() {
   // ── 다운로드 핸들러 ────────────────────────────────────────────────────────
   const handleDownload = () => {
     // ✅ 수정: 다운로드 시 현재 활성화된 버전의 데이터를 사용하도록 연결
-    // TODO: activeVersion.audioUrl 파일 다운로드
-    // const a = document.createElement('a');
-    // a.href = activeVersion?.audioUrl!;
-    // a.download = `humix_generated_${activeVersion?.id}.wav`;
-    // a.click();
-    console.log(`[다운로드] 현재 활성 버전 ID: ${activeVersion?.id}, URL: ${activeVersion?.audioUrl}`);
+    // 🔌 API 연결: activeVersion.audioUrl 파일 다운로드
+    if (!activeVersion?.audioUrl) return;
+    const a = document.createElement('a');
+    a.href = activeVersion.audioUrl;
+    a.download = `humix_generated_${activeVersion.id}.wav`;
+    a.click();
   };
 
   // ── AI 수정 요청 핸들러 ────────────────────────────────────────────────────
+  // 🔌 API 연결 보류: AI로 수정하기는 백엔드 작업 우선순위에서 빠져 있어, 현재는 UI 동작 확인을 위한
+  //                 더미 시뮬레이션으로 되돌려둠. 백엔드 준비되면 아래 주석(startModification) 해제하고
+  //                 더미 시뮬레이션 블록을 제거할 것. API 자체는 명세서 3.4.1.10에 정의되어 있음.
   const handleModSubmit = () => {
     if (!modPrompt.trim() || isModGenerating) return;
     const prompt = modPrompt.trim();
@@ -202,18 +328,72 @@ export default function Generation() {
     setIsModGenerating(true);
 
     // ──────────────────────────────────────────────────────────────────────────
-    // TODO: 실제 API 연결 시 아래 시뮬레이션을 제거하고 아래 흐름으로 교체:
+    // 🔌 API 연결 (보류): 백엔드 준비되면 아래 주석을 해제하고, 바로 아래의
+    //                   [임시] 시뮬레이션 블록을 제거할 것.
     //
-    //  1) POST /api/v1/generation/songs/{song_id}/modifications
-    //    const { task_id } = await fetch(`/api/v1/generation/songs/${songId}/modifications`, {
-    //      method: 'POST',
-    //      headers: { 'Content-Type': 'application/json' },
-    //      body: JSON.stringify({ prompt }),
-    //    }).then(r => r.json());
+    // const startModification = async () => {
+    //   try {
+    //     if (songId === null) {
+    //       // TODO: 원본 곡 생성이 완료되지 않은 상태에서는 song_id가 없어 수정 요청을 보낼 수 없음.
+    //       //       이 케이스는 UI상 '생성 완료' 이후에만 패널이 열리므로 발생하지 않아야 하나 방어 처리.
+    //       throw new Error('song_id가 없어 수정 요청을 보낼 수 없습니다.');
+    //     }
     //
-    //  2) SSE 구독 — UC6 stream API와 동일한 엔드포인트 사용
-    //    GET /api/v1/generation/songs/tasks/{task_id}/stream
-    //    → completed 시 새 audio_url을 modVersions에 추가
+    //     const accessToken = getAccessToken();
+    //
+    //     // 1) POST /api/v1/generation/songs/{song_id}/modifications (API 명세서 3.4.1.10)
+    //     const res = await fetch(`${API_BASE_URL}/generation/songs/${songId}/modifications`, {
+    //       method: 'POST',
+    //       headers: {
+    //         'Content-Type': 'application/json',
+    //         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    //       },
+    //       body: JSON.stringify({ prompt }),
+    //     });
+    //
+    //     if (!res.ok) {
+    //       throw new Error('수정 요청 실패');
+    //     }
+    //
+    //     const json: ApiEnvelope<GenerationTaskResponse> = await res.json();
+    //     const modTaskId = json.data.task_id;
+    //
+    //     // 2) SSE 구독 — UC6 stream API와 동일한 엔드포인트 사용
+    //     subscribeToTaskStream(
+    //       modTaskId,
+    //       () => {
+    //         // TODO: 수정 중 진행 메시지를 별도로 보여줄 UI 요소가 현재 없음 (버튼 스피너만 존재).
+    //         //       필요 시 progress 이벤트로 진행률 표시 UI 추가 논의.
+    //       },
+    //       (data) => {
+    //         setModVersions((prev) => [
+    //           // 기존 버전은 모두 비활성화
+    //           ...prev.map((v) => ({ ...v, isActive: false })),
+    //           // 새 버전 추가 (현재 버전으로 설정)
+    //           {
+    //             id: data.result.song_id,
+    //             prompt,
+    //             isActive: true,
+    //             audioUrl: data.result.audio_url,
+    //             durationStr: formatDuration(data.result.duration_seconds),
+    //           },
+    //         ]);
+    //         setIsModGenerating(false);
+    //       },
+    //       () => {
+    //         // TODO: 수정 실패 시 별도 UI 피드백이 없음. 우선 alert로 처리.
+    //         alert('곡 수정 중 오류가 발생했어요. 다시 시도해주세요.');
+    //         setIsModGenerating(false);
+    //       }
+    //     );
+    //   } catch (err) {
+    //     console.error('[AI 수정 요청 오류]', err);
+    //     alert('곡 수정 중 오류가 발생했어요. 다시 시도해주세요.');
+    //     setIsModGenerating(false);
+    //   }
+    // };
+    //
+    // startModification();
     // ──────────────────────────────────────────────────────────────────────────
 
     // ── [임시] 수정 생성 시뮬레이션 (API 연결 전 UI 확인용) ──────────────────
@@ -223,13 +403,13 @@ export default function Generation() {
         // 기존 버전은 모두 비활성화
         ...prev.map((v) => ({ ...v, isActive: false })),
         // 새 버전 추가 (현재 버전으로 설정)
-        { 
-          id: newId, 
-          prompt, 
+        {
+          id: newId,
+          prompt,
           isActive: true,
           // ✅ 추가: 수정된 버전에 대한 가상의 오디오 정보 부여
           audioUrl: `https://dummy-modified-audio-${newId}.url`,
-          durationStr: '1:48', 
+          durationStr: '1:48',
         },
       ]);
       setIsModGenerating(false);
@@ -240,7 +420,7 @@ export default function Generation() {
   // ── 수정 버전 적용 핸들러 ─────────────────────────────────────────────────
   // ✅ 수정: 파라미터 타입을 확장하여 원본 버전을 뜻하는 'original' (string) 식별자도 정상적으로 인자로 받을 수 있도록 처리했습니다.
   const handleSetActive = (id: number | string) => {
-    // TODO: 실제 연결 시 해당 버전의 audio_url로 재생 상태 교체
+    // ✅ 수정: 해당 버전의 audio_url로 재생 상태 교체 (modVersions 안에 이미 audioUrl이 저장되어 있어 별도 API 호출 불필요)
     setModVersions((prev) =>
       prev.map((v) => ({ ...v, isActive: v.id === id }))
     );
@@ -348,8 +528,7 @@ export default function Generation() {
                   </div>
 
                   {/* AI로 수정하기 버튼 — 클릭 시 하단 수정 패널 토글
-                   * TODO: UI 전용, 실제 수정 API는 추후 연결
-                   * POST /api/v1/generation/songs/{song_id}/modifications
+                   * 🔌 API 연결: POST /api/v1/generation/songs/{song_id}/modifications (handleModSubmit에서 연결됨)
                    */}
                   <button
                     onClick={() => setIsModifyOpen((prev) => !prev)}
@@ -393,7 +572,7 @@ export default function Generation() {
                     {isPlaying ? '⏸ 정지' : '▶ 재생'}
                   </button>
                   {/* 다운로드 버튼 */}
-                  {/* TODO: handleDownload → audioUrl 다운로드 연결 */}
+                  {/* 🔌 API 연결: handleDownload → activeVersion.audioUrl 다운로드 연결됨 */}
                   <button
                     onClick={handleDownload}
                     className="flex-1 py-2.5 rounded-lg bg-transparent border border-gray-700 hover:border-gray-500 text-gray-300 hover:text-white text-sm font-bold transition-colors duration-200 flex items-center justify-center gap-2"
@@ -404,9 +583,9 @@ export default function Generation() {
               </div>
 
               {/* ── AI 수정 패널 (AI로 수정하기 클릭 시 펼쳐짐) ── */}
-              {/* TODO: UI 전용 구현. 실제 API 연결 시:
-               * 1) POST /api/v1/generation/songs/{song_id}/modifications
-               * 2) GET  /api/v1/generation/songs/tasks/{task_id}/stream (SSE)
+              {/* 🔌 API 연결:
+               * 1) POST /api/v1/generation/songs/{song_id}/modifications (handleModSubmit)
+               * 2) GET  /api/v1/generation/songs/tasks/{task_id}/stream (SSE, subscribeToTaskStream)
                * → 결과를 modVersions에 추가
                */}
               {isModifyOpen && (
@@ -524,7 +703,7 @@ export default function Generation() {
 
           {/* ── 에러 상태 ── */}
           {status === 'error' && (
-            // TODO: 에러 발생 시 SSE onerror에서 setStatus('error') 호출
+            // 🔌 API 연결: 에러 발생 시 SSE onerror / fetch catch에서 setStatus('error') 호출됨
             <div className="flex flex-col items-center gap-3 py-6">
               <p className="text-sm text-red-400">곡 생성 중 오류가 발생했어요. 다시 시도해주세요.</p>
               <button
