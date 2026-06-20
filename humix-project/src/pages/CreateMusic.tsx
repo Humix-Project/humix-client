@@ -420,7 +420,10 @@ export default function CreateMusic() {
         }),
       });
       if (!presignedRes.ok) {
-        throw new Error(`presigned URL 발급 실패 (${presignedRes.status})`);
+        const errBody = await presignedRes.text().catch(() => "");
+        throw new Error(
+          `presigned URL 발급 실패 (${presignedRes.status})${errBody ? `: ${errBody}` : ""}`,
+        );
       }
       const { presigned_url, file_key } = await presignedRes.json();
 
@@ -431,7 +434,10 @@ export default function CreateMusic() {
         body: wavBlob,
       });
       if (!s3Res.ok) {
-        throw new Error(`S3 업로드 실패 (${s3Res.status})`);
+        const errBody = await s3Res.text().catch(() => "");
+        throw new Error(
+          `S3 업로드 실패 (${s3Res.status})${errBody ? `: ${errBody}` : ""}`,
+        );
       }
 
       // 4) 백엔드에 허밍 정보 저장 → humming_id 발급 — 3.4.1.4
@@ -447,7 +453,10 @@ export default function CreateMusic() {
         }),
       });
       if (!saveRes.ok) {
-        throw new Error(`허밍 저장 실패 (${saveRes.status})`);
+        const errBody = await saveRes.text().catch(() => "");
+        throw new Error(
+          `허밍 저장 실패 (${saveRes.status})${errBody ? `: ${errBody}` : ""}`,
+        );
       }
       const saveData = await saveRes.json();
       // saveData: { humming_id, file_url, duration_seconds, created_at }
