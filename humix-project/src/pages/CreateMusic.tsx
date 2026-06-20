@@ -1,15 +1,24 @@
 import { useState, useRef } from "react";
 import Stepper from "../components/Stepper";
-import { useNavigate } from "react-router-dom"; // ◀ react-router-dom에서 가져오기
+import { useNavigate } from "react-router-dom";
+import { useHummingStore } from "../store/useHummingStore"; // ◀ 경로는 실제 프로젝트 구조에 맞게 조정
+import {
+  webmBlobToWavBlob,
+  blobToAudioBuffer,
+  replaceAudioSegment,
+  audioBufferDurationSec,
+  audioBufferToWav,
+} from "../utils/audioUtils"; // ◀ 경로는 실제 프로젝트 구조에 맞게 조정
 
 // ── 타입 ──────────────────────────────────────────────────────
 type RecordingVersion = {
   id: number;
-  bars: number[]; // 전체 파형 (80개 bar)
+  bars: number[]; // 전체 파형 (80개 bar, 시각화용)
   durationSec: number; // 실제 녹음 초
   label: string; // "원본" | "재녹음 1" | "재녹음 2" ...
-  patchStart?: number; // 재녹음 시작 비율 (0~1)
-  patchEnd?: number; // 재녹음 종료 비율 (0~1)
+  blob: Blob; // ◀ 실제 녹음된 오디오 (webm)
+  patchStart?: number;
+  patchEnd?: number;
 };
 
 type RecordState = "idle" | "recording" | "patching" | "done";
@@ -25,12 +34,12 @@ function fmtSec(s: number) {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
-// ── Waveform 컴포넌트 ─────────────────────────────────────────
+// ── Waveform 컴포넌트 (기존과 동일) ────────────────────────────
 function Waveform({
   bars,
   height = 40,
-  selectedRange, // [startRatio, endRatio] 0~1
-  onSelect, // 드래그 선택 콜백
+  selectedRange,
+  onSelect,
   accent = "#8b5cf6",
   patchStart,
   patchEnd,
@@ -107,7 +116,6 @@ function Waveform({
           />
         );
       })}
-      {/* 선택 영역 오버레이 */}
       {selectedRange && selectedRange[1] - selectedRange[0] > 0.01 && (
         <div
           className="absolute top-0 bottom-0 pointer-events-none rounded"
@@ -125,7 +133,8 @@ function Waveform({
 
 // ── 메인 페이지 ───────────────────────────────────────────────
 export default function CreateMusic() {
-  const navigate = useNavigate(); // ◀ navigate 객체 선언
+  const navigate = useNavigate();
+  const setHumming = useHummingStore((s) => s.setHumming); // ◀ humming_id 저장용
 
   const [recordState, setRecordState] = useState<RecordState>("idle");
   const [elapsed, setElapsed] = useState(0);
@@ -136,118 +145,333 @@ export default function CreateMusic() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   // 재녹음 상태
-  const [patchTarget, setPatchTarget] = useState<number | null>(null); // 어떤 버전을 패치할지
-  const [selection, setSelection] = useState<[number, number] | null>(null); // 드래그 선택
+  const [patchTarget, setPatchTarget] = useState<number | null>(null);
+  const [selection, setSelection] = useState<[number, number] | null>(null);
   const [patchRecording, setPatchRecording] = useState(false);
   const [patchElapsed, setPatchElapsed] = useState(0);
   const patchTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 재생 중인 버전
+  // 재생
   const [playingId, setPlayingId] = useState<number | null>(null);
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
+  const objectUrlsRef = useRef<Map<number, string>>(new Map());
 
-  // ── 전체 녹음 ─────────────────────────────────────────────
-  function startRecording() {
-    if (timerRef.current) clearInterval(timerRef.current);
-    setRecordState("recording");
-    setElapsed(0);
-    setLiveBars(Array(80).fill(5));
-    let sec = 0;
-    timerRef.current = setInterval(() => {
-      sec++;
-      setElapsed(sec);
-      setLiveBars(makeWave(80));
-      if (sec >= 60) stopRecording(sec);
-    }, 1000);
+  // 업로드 진행 상태
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // ── MediaRecorder 관련 ref (전체 녹음) ──────────────────────
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  // ── MediaRecorder 관련 ref (구간 재녹음) ─────────────────────
+  const patchRecorderRef = useRef<MediaRecorder | null>(null);
+  const patchChunksRef = useRef<Blob[]>([]);
+  const patchStreamRef = useRef<MediaStream | null>(null);
+  const [isPatchProcessing, setIsPatchProcessing] = useState(false);
+
+  // ── 전체 녹음 시작 ───────────────────────────────────────────
+  async function startRecording() {
+    setUploadError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+      streamRef.current = stream;
+
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      recordedChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.start();
+
+      if (timerRef.current) clearInterval(timerRef.current);
+      setRecordState("recording");
+      setElapsed(0);
+      setLiveBars(Array(80).fill(5));
+      let sec = 0;
+      timerRef.current = setInterval(() => {
+        sec++;
+        setElapsed(sec);
+        setLiveBars(makeWave(80)); // 실시간 파형은 시각 효과용 (실제 진폭 분석 아님)
+        if (sec >= 60) stopRecording(sec);
+      }, 1000);
+    } catch (err) {
+      console.error("마이크 접근 실패:", err);
+      setUploadError(
+        "마이크 접근 권한이 필요합니다. 브라우저 설정을 확인해주세요.",
+      );
+    }
   }
 
+  // ── 전체 녹음 종료 ───────────────────────────────────────────
   function stopRecording(finalSec?: number) {
     if (timerRef.current) clearInterval(timerRef.current);
+
+    const mediaRecorder = mediaRecorderRef.current;
+    if (!mediaRecorder) return;
+
     const dur = finalSec ?? elapsed;
-    const newVer: RecordingVersion = {
-      id: Date.now(),
-      bars: makeWave(80),
-      durationSec: dur || 8,
-      label: versions.length === 0 ? "원본" : `재녹음 ${versions.length}`,
+
+    mediaRecorder.onstop = () => {
+      const webmBlob = new Blob(recordedChunksRef.current, {
+        type: "audio/webm",
+      });
+
+      const newVer: RecordingVersion = {
+        id: Date.now(),
+        bars: makeWave(80),
+        durationSec: dur || 1,
+        label: versions.length === 0 ? "원본" : `재녹음 ${versions.length}`,
+        blob: webmBlob,
+      };
+      setVersions((prev) => [...prev, newVer]);
+      setSelectedId(newVer.id);
+      setRecordState("done");
+      setSelection(null);
+      setPatchTarget(null);
+
+      // 마이크 스트림 정리
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
     };
-    setVersions((prev) => [...prev, newVer]);
-    setSelectedId(newVer.id);
-    setRecordState("done");
-    setSelection(null);
-    setPatchTarget(null);
+
+    mediaRecorder.stop();
   }
 
   function handleMicClick() {
     if (recordState === "recording") {
       stopRecording();
     } else {
-      // 전체 재녹음 (이전 버전 히스토리 유지, 새 버전 추가)
       startRecording();
-      setRecordState("recording");
     }
   }
 
-  // ── 구간 재녹음 ───────────────────────────────────────────
-  function startPatchRecord(versionId: number) {
+  // ── 구간 재녹음 시작: 실제 마이크 녹음 시작 ──────────────────
+  async function startPatchRecord(versionId: number) {
     if (!selection || selection[1] - selection[0] < 0.02) return;
-    setPatchTarget(versionId);
-    setPatchRecording(true);
-    setPatchElapsed(0);
-    let sec = 0;
-    patchTimerRef.current = setInterval(() => {
-      sec++;
-      setPatchElapsed(sec);
-    }, 1000);
+
+    setUploadError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+      patchStreamRef.current = stream;
+
+      const recorder = new MediaRecorder(stream);
+      patchRecorderRef.current = recorder;
+      patchChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) patchChunksRef.current.push(e.data);
+      };
+
+      recorder.start();
+
+      setPatchTarget(versionId);
+      setPatchRecording(true);
+      setPatchElapsed(0);
+      let sec = 0;
+      patchTimerRef.current = setInterval(() => {
+        sec++;
+        setPatchElapsed(sec);
+      }, 1000);
+    } catch (err) {
+      console.error("마이크 접근 실패:", err);
+      setUploadError(
+        "마이크 접근 권한이 필요합니다. 브라우저 설정을 확인해주세요.",
+      );
+    }
   }
 
+  // ── 구간 재녹음 종료: 새 녹음을 원본의 선택 구간에 실제로 합성 ──
   function stopPatchRecord(versionId: number) {
     if (patchTimerRef.current) clearInterval(patchTimerRef.current);
     setPatchRecording(false);
 
-    // 해당 버전의 파형에서 선택 구간 bars를 새로 교체 → 새 버전으로 저장
-    setVersions((prev) => {
-      const base = prev.find((v) => v.id === versionId);
-      if (!base || !selection) return prev;
-      const newBars = base.bars.map((h, i) => {
-        const ratio = i / base.bars.length;
-        if (ratio >= selection[0] && ratio <= selection[1]) {
-          return 15 + Math.random() * 85; // 패치 구간만 새 파형
-        }
-        return h;
+    const recorder = patchRecorderRef.current;
+    if (!recorder || !selection) {
+      patchStreamRef.current?.getTracks().forEach((t) => t.stop());
+      return;
+    }
+
+    recorder.onstop = async () => {
+      patchStreamRef.current?.getTracks().forEach((t) => t.stop());
+      patchStreamRef.current = null;
+
+      const patchBlob = new Blob(patchChunksRef.current, {
+        type: "audio/webm",
       });
-      const newVer: RecordingVersion = {
-        id: Date.now(),
-        bars: newBars,
-        durationSec: base.durationSec,
-        label: `재녹음 ${prev.length}`,
-        patchStart: selection[0],
-        patchEnd: selection[1],
-      };
-      return [...prev, newVer];
-    });
-    setVersions((prev) => {
-      const newId = prev[prev.length - 1]?.id;
-      if (newId) setSelectedId(newId);
-      return prev;
-    });
-    setSelection(null);
-    setPatchTarget(null);
+
+      setIsPatchProcessing(true);
+      setUploadError(null);
+
+      try {
+        const base = versions.find((v) => v.id === versionId);
+        if (!base) return;
+
+        // 원본 오디오와 새로 녹음한 패치 오디오를 둘 다 디코딩
+        const [baseBuffer, patchBuffer] = await Promise.all([
+          blobToAudioBuffer(base.blob),
+          blobToAudioBuffer(patchBlob),
+        ]);
+
+        // 선택 구간([selection[0], selection[1]])을 새 녹음으로 실제 교체
+        const mergedBuffer = replaceAudioSegment(
+          baseBuffer,
+          patchBuffer,
+          selection[0],
+          selection[1],
+        );
+
+        const mergedWavBlob = new Blob([audioBufferToWav(mergedBuffer)], {
+          type: "audio/wav",
+        });
+        const newDurationSec = audioBufferDurationSec(mergedBuffer);
+
+        // 파형도 새 오디오 길이에 맞춰 재생성 (실제 진폭 기반은 아니고 시각 효과용)
+        const newBars = makeWave(80);
+
+        const newVer: RecordingVersion = {
+          id: Date.now(),
+          bars: newBars,
+          durationSec: newDurationSec,
+          label: `재녹음 ${versions.length}`,
+          blob: mergedWavBlob,
+          patchStart: selection[0],
+          patchEnd: selection[1],
+        };
+
+        setVersions((prev) => [...prev, newVer]);
+        setSelectedId(newVer.id);
+      } catch (err) {
+        console.error("구간 재녹음 합성 실패:", err);
+        setUploadError("구간 재녹음을 합치는 중 오류가 발생했습니다.");
+      } finally {
+        setIsPatchProcessing(false);
+        setSelection(null);
+        setPatchTarget(null);
+      }
+    };
+
+    recorder.stop();
   }
 
-  // ── API 제출 ──────────────────────────────────────────────
+  // ── 들어보기 (재생) ──────────────────────────────────────────
+  function handlePlay(ver: RecordingVersion) {
+    if (playingId === ver.id) {
+      audioElRef.current?.pause();
+      setPlayingId(null);
+      return;
+    }
+
+    let url = objectUrlsRef.current.get(ver.id);
+    if (!url) {
+      url = URL.createObjectURL(ver.blob);
+      objectUrlsRef.current.set(ver.id, url);
+    }
+
+    if (!audioElRef.current) {
+      audioElRef.current = new Audio();
+      audioElRef.current.onended = () => setPlayingId(null);
+    }
+    audioElRef.current.src = url;
+    audioElRef.current.play();
+    setPlayingId(ver.id);
+  }
+
+  // ── API 제출: presigned URL 발급 → S3 업로드 → DB 저장 ────────
   async function handleNext() {
     if (!selectedId) return;
     const ver = versions.find((v) => v.id === selectedId);
     if (!ver) return;
-    // 실제 구현 시 FormData로 오디오 파일 업로드 후 file_key 획득
-    const body = {
-      file_key: `uploads/humming/${Date.now()}_user_humming.mp3`,
-      audio_name: `${ver.label}.mp3`,
-      duration_seconds: ver.durationSec,
-    };
-    console.log("POST /api/v1/upload/humming", body);
 
-    // ◀ navigate를 사용하여 페이지 이동
-    navigate("/MelodyEdit");
+    setIsUploading(true);
+    setUploadError(null);
+
+    try {
+      const accessToken = localStorage.getItem("access_token");
+      if (!accessToken) {
+        throw new Error("로그인이 필요합니다.");
+      }
+
+      // 1) 업로드용 wav 변환 (API 3.4.1.3 비고: mp3/wav만 취급)
+      //    구간 재녹음으로 만들어진 버전은 이미 wav이므로 그대로 사용,
+      //    최초 전체 녹음(webm)인 경우에만 변환 수행
+      const wavBlob =
+        ver.blob.type === "audio/wav"
+          ? ver.blob
+          : await webmBlobToWavBlob(ver.blob);
+      const audioName = `${ver.label}_${Date.now()}.wav`;
+
+      // 2) Presigned URL 발급 — 3.4.1.3
+      const presignedRes = await fetch("/api/v1/upload/audio/presigned", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          audio_name: audioName,
+          content_type: "audio/wav",
+          usage: "HUMMING",
+        }),
+      });
+      if (!presignedRes.ok) {
+        throw new Error(`presigned URL 발급 실패 (${presignedRes.status})`);
+      }
+      const { presigned_url, file_key } = await presignedRes.json();
+
+      // 3) S3에 실제 파일 업로드 — 3.4.3.1 (FormData로 감싸지 않고 바이너리 그대로 전송)
+      const s3Res = await fetch(presigned_url, {
+        method: "PUT",
+        headers: { "Content-Type": "audio/wav" },
+        body: wavBlob,
+      });
+      if (!s3Res.ok) {
+        throw new Error(`S3 업로드 실패 (${s3Res.status})`);
+      }
+
+      // 4) 백엔드에 허밍 정보 저장 → humming_id 발급 — 3.4.1.4
+      const saveRes = await fetch("/api/v1/upload/humming", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          file_key,
+          duration_seconds: ver.durationSec,
+        }),
+      });
+      if (!saveRes.ok) {
+        throw new Error(`허밍 저장 실패 (${saveRes.status})`);
+      }
+      const saveData = await saveRes.json();
+      // saveData: { humming_id, file_url, duration_seconds, created_at }
+
+      // 5) zustand에 humming_id 저장 — 다음 단계(멜로디 벡터 변환)에서 사용
+      setHumming({
+        hummingId: saveData.humming_id,
+        fileUrl: saveData.file_url,
+        durationSeconds: saveData.duration_seconds,
+      });
+
+      // 6) 멜로디 벡터 페이지로 이동
+      //    실제 벡터 변환(POST /hummings/{humming_id}/vectors) 호출은
+      //    MelodyEdit 페이지 진입 시 humming_id를 store에서 꺼내 호출하는 편이
+      //    책임 분리상 깔끔합니다. (로딩 화면에서 호출해도 무방)
+      navigate("/MelodyEdit");
+    } catch (err) {
+      console.error(err);
+      setUploadError(
+        err instanceof Error ? err.message : "업로드 중 오류가 발생했습니다.",
+      );
+    } finally {
+      setIsUploading(false);
+    }
   }
 
   const hasVersions = versions.length > 0;
@@ -311,12 +535,10 @@ export default function CreateMusic() {
             }}
           >
             {recordState === "recording" ? (
-              /* 정지 아이콘 */
               <svg viewBox="0 0 24 24" fill="white" width="36" height="36">
                 <rect x="6" y="6" width="12" height="12" rx="2.5" />
               </svg>
             ) : recordState === "done" ? (
-              /* 재녹음 아이콘 */
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -336,7 +558,6 @@ export default function CreateMusic() {
                 <line x1="8" y1="22" x2="16" y2="22" />
               </svg>
             ) : (
-              /* 마이크 아이콘 */
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -437,10 +658,24 @@ export default function CreateMusic() {
           </div>
         </div>
 
+        {/* ── 업로드 에러 표시 ── */}
+        {uploadError && (
+          <div
+            className="w-full rounded-xl px-4 py-3 mt-4 text-sm"
+            style={{
+              background: "rgba(239,68,68,0.1)",
+              border: "1px solid rgba(239,68,68,0.3)",
+              color: "#f87171",
+            }}
+          >
+            {uploadError}
+          </div>
+        )}
+
         {/* ── 버전 목록 ── */}
         {hasVersions && (
           <div
-            className="w-full rounded-2xl p-6 flex flex-col gap-3"
+            className="w-full rounded-2xl p-6 flex flex-col gap-3 mt-4"
             style={{
               background: "rgba(255,255,255,0.03)",
               border: "1px solid rgba(255,255,255,0.08)",
@@ -474,9 +709,7 @@ export default function CreateMusic() {
                       : "rgba(255,255,255,0.03)",
                   }}
                 >
-                  {/* 메인 행 */}
                   <div className="flex items-center gap-3 px-4 py-3">
-                    {/* 선택 라디오 */}
                     <button
                       onClick={() => setSelectedId(ver.id)}
                       className="shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all"
@@ -492,7 +725,6 @@ export default function CreateMusic() {
                       )}
                     </button>
 
-                    {/* 라벨 */}
                     <span
                       className="text-xs font-semibold shrink-0 w-16"
                       style={{
@@ -504,7 +736,6 @@ export default function CreateMusic() {
                       {ver.label}
                     </span>
 
-                    {/* 파형 (드래그 선택 가능) */}
                     <Waveform
                       bars={ver.bars}
                       height={36}
@@ -517,7 +748,6 @@ export default function CreateMusic() {
                       patchEnd={ver.patchEnd}
                     />
 
-                    {/* 시간 */}
                     <span
                       className="text-xs tabular-nums shrink-0"
                       style={{
@@ -529,9 +759,8 @@ export default function CreateMusic() {
                       {fmtSec(ver.durationSec)}
                     </span>
 
-                    {/* 들어보기 */}
                     <button
-                      onClick={() => setPlayingId(isPlaying ? null : ver.id)}
+                      onClick={() => handlePlay(ver)}
                       className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110"
                       style={{
                         background: isPlaying
@@ -544,7 +773,6 @@ export default function CreateMusic() {
                       {isPlaying ? "⏸" : "▶"}
                     </button>
 
-                    {/* 재녹음 버튼 */}
                     {!isPatching ? (
                       <button
                         onClick={() => {
@@ -595,7 +823,6 @@ export default function CreateMusic() {
                     )}
                   </div>
 
-                  {/* 구간 재녹음 패널 */}
                   {isPatching && (
                     <div
                       className="px-4 pb-4 pt-1 flex flex-col gap-3"
@@ -620,7 +847,9 @@ export default function CreateMusic() {
                         <button
                           onClick={() => startPatchRecord(ver.id)}
                           disabled={
-                            !selection || selection[1] - selection[0] < 0.02
+                            !selection ||
+                            selection[1] - selection[0] < 0.02 ||
+                            isPatchProcessing
                           }
                           className="flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                           style={{
@@ -637,7 +866,9 @@ export default function CreateMusic() {
                           >
                             <circle cx="12" cy="12" r="8" />
                           </svg>
-                          선택 구간 재녹음 시작
+                          {isPatchProcessing
+                            ? "구간 합성 중..."
+                            : "선택 구간 재녹음 시작"}
                         </button>
                       ) : (
                         <button
@@ -664,13 +895,21 @@ export default function CreateMusic() {
         {selectedVer && (
           <button
             onClick={handleNext}
-            className="w-full py-3.5 rounded-xl font-bold text-sm   hover:scale-[1.01] active:scale-95
-            bg-[#8B5CF6] hover:bg-[#7C3AED] text-white shadow-lg shadow-[#8B5CF6]/30 transition-all duration-200"
+            disabled={isUploading}
+            className="w-full py-3.5 rounded-xl font-bold text-sm hover:scale-[1.01] active:scale-95
+            bg-[#8B5CF6] hover:bg-[#7C3AED] text-white shadow-lg shadow-[#8B5CF6]/30 transition-all duration-200
+            disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 mt-4"
           >
-            다음 단계: 멜로디 편집 → &nbsp;
-            <span className="opacity-60 font-normal">
-              ({selectedVer.label} 선택됨)
-            </span>
+            {isUploading ? (
+              "업로드 중..."
+            ) : (
+              <>
+                다음 단계: 멜로디 편집 → &nbsp;
+                <span className="opacity-60 font-normal">
+                  ({selectedVer.label} 선택됨)
+                </span>
+              </>
+            )}
           </button>
         )}
       </div>
