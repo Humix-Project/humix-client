@@ -1,8 +1,8 @@
 import { useState } from 'react';
-// ✅ 추가: 페이지 이동을 위한 useNavigate 훅 임포트
+// ✅ 페이지 이동을 위한 useNavigate 훅 임포트
 import { useNavigate } from 'react-router-dom';
 import Stepper from '../components/Stepper';
-// ✅ 추가: 이전에 만든 Zustand 스토어 임포트
+// ✅ 이전에 만든 Zustand 스토어 임포트
 import { useConceptStore } from '../store/useConceptStore';
 
 // 아이콘은 lucide-react 대신 텍스트/이모지를 사용하거나,
@@ -12,11 +12,11 @@ const IconViolin = () => <span>🎻</span>;
 const IconJazz = () => <span>🎷</span>;
 const IconClapperboard = () => <span>🎬</span>;
 
-// 데이터 정의
+// 💡 API 명세서의 <곡 생성 장르> enum 값과 100% 일치하도록 id 수정 (Jazz 대문자 주의)
 const genres = [
   { id: "kpop", name: "K-POP", icon: IconMusic, description: "밝고 중독적인 멜로디" },
   { id: "classical", name: "Classical", icon: IconViolin, description: "화성학-구조적 완성도" },
-  { id: "jazz", name: "Jazz", icon: IconJazz, description: "복잡한 화음-즉흥 연주" },
+  { id: "Jazz", name: "Jazz", icon: IconJazz, description: "복잡한 화음-즉흥 연주" }, // api 명세서 기준 대문자 J
   { id: "cinematic", name: "Cinematic", icon: IconClapperboard, description: "웅장하고 감성적인 OST" },
 ];
 
@@ -39,20 +39,21 @@ export default function Concept() {
   const [selectedGenre, setSelectedGenre] = useState<GenreId | null>("kpop");
   const [selectedMoods, setSelectedMoods] = useState<MoodId[]>(["bright_exciting"]);
   
-  // ✅ 페이지 이동 함수 초기화
+  // 페이지 이동 함수 초기화
   const navigate = useNavigate();
   
-  // ✅ Zustand 스토어에서 데이터 저장 함수 꺼내오기
+  // Zustand 스토어에서 데이터 저장 함수 꺼내오기
   const setConcept = useConceptStore((state) => state.setConcept);
 
-  // ✅ 수정: 분위기 선택 핸들러 (무조건 1개만 선택되도록 배열을 덮어씌움)
+  // 분위기 선택 핸들러 (무조건 1개만 선택되도록 배열을 덮어씌움)
   const handleMoodToggle = (moodId: MoodId) => {
     setSelectedMoods([moodId]);
   };
 
-  // ✅ 다음 페이지로 넘어가는 핸들러 함수
+  // 다음 페이지로 넘어가는 핸들러 함수
   const handleNextStep = () => {
     // 1. Zustand 전역 상태(Store)에 현재 선택한 장르와 분위기를 저장
+    // (여기서 저장된 값은 Reference 페이지 완료 후 최종 API 호출 시 꺼내서 전송됩니다!)
     setConcept(selectedGenre, selectedMoods);
     
     // 2. 다음 단계인 참고 음악 선택 페이지(Reference.tsx)의 라우터 경로로 이동
@@ -116,7 +117,6 @@ export default function Concept() {
           {/* 분위기 선택 섹션 */}
           <div>
             <div className="mb-5">
-                {/* ✅ 수정: 필수 (1개) 텍스트로 변경 */}
                 <h2 className="text-lg font-semibold text-white">
                 분위기 선택 <span className="text-purple-400 font-bold ml-1">▪︎ 필수 (1개)</span>
                 </h2>
