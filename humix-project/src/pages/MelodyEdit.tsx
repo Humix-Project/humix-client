@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import Stepper from "../components/Stepper"; // 경로에 맞게 확인해주세요
+import Stepper from "../components/Stepper"; 
+import { useHummingStore } from "../store/useHummingStore"; // Zustand 스토어 import
 
 // ── API 명세 기반 응답 타입 정의 ──
 type MelodyNote = {
@@ -9,7 +10,7 @@ type MelodyNote = {
   duration_seconds: number;
 };
 
-// 캔버스 렌더링을 위한 상수 (사진 UI 기준: C3~C6, 0s~8s)
+// 캔버스 렌더링을 위한 상수 (C3~C6, 0s~8s)
 const MIN_PITCH = 48; // C3
 const MAX_PITCH = 84; // C6
 const MAX_TIME = 8;   // 8 seconds
@@ -17,6 +18,9 @@ const MAX_TIME = 8;   // 8 seconds
 export default function MelodyEditorPage() {
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // 전역 상태에서 이전 단계에 저장해둔 hummingId를 꺼내옴
+  const hummingId = useHummingStore((s) => s.hummingId);
 
   const [activeTool, setActiveTool] = useState<"edit">("edit");
   const [isSnapEnabled, setIsSnapEnabled] = useState(true);
@@ -35,20 +39,25 @@ export default function MelodyEditorPage() {
   // 드래그(편집) 상태 관리
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 
-  // 💡 실제 서비스에서는 라우터의 useParams나 전역 상태에서 ID를 받아와야 합니다.
-  // 예: const { hummingId } = useParams();
-  const HUMMING_ID = 3; 
-
   // 1. 초기 데이터 로드 (API POST 요청)
   useEffect(() => {
+    // 방어 코드: 만약 스토어에 hummingId가 없다면 비정상적 접근이므로 이전 페이지로 이동
+    if (!hummingId) {
+      console.warn("저장된 허밍 ID가 없습니다. 이전 페이지로 이동합니다.");
+      alert("허밍 ID를 찾을 수 없습니다. 녹음을 먼저 진행해 주세요.");
+      navigate("/create"); // 실제 프로젝트의 녹음 페이지 경로에 맞게 수정하세요
+      return;
+    }
+
     async function fetchMelodyData() {
       setIsLoading(true);
       try {
-        const response = await fetch(`/api/v1/hummings/${HUMMING_ID}/vectors`, {
+        // 하드코딩된 ID 대신 템플릿 리터럴로 스토어의 hummingId 전달
+        const response = await fetch(`/api/v1/hummings/${hummingId}/vectors`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": "Bearer YOUR_TOKEN_HERE" // 실제 토큰 교체 필요
+            "Authorization": "Bearer YOUR_TOKEN_HERE" // 실제 인증 토큰 구조에 맞게 교체 필요
           },
           body: JSON.stringify({}),
         });
@@ -68,7 +77,7 @@ export default function MelodyEditorPage() {
     }
 
     fetchMelodyData();
-  }, []);
+  }, [hummingId, navigate]); // 의존성 배열에 hummingId 추가
 
   // 2. 재생바 애니메이션 루프
   useEffect(() => {
@@ -229,7 +238,7 @@ export default function MelodyEditorPage() {
     const width = canvas.getBoundingClientRect().width;
     const height = canvas.getBoundingClientRect().height;
 
-    // 클릭한 위치 근처의 노트 찾기 (조작을 쉽게 하기 위해 반경을 약간 넓게 20px로 설정)
+    // 클릭한 위치 근처의 노트 찾기
     const clickedIndex = notes.findIndex((note) => {
       const noteX = (note.start_time_seconds / MAX_TIME) * width;
       const noteY = height - ((note.pitch - MIN_PITCH) / (MAX_PITCH - MIN_PITCH)) * height;
@@ -280,22 +289,25 @@ export default function MelodyEditorPage() {
 
   // 5. 완료 및 저장 버튼 로직 (API PUT 요청 실전 연동)
   const handleSaveAndComplete = async () => {
+    if (!hummingId) return;
+
     setIsSaving(true);
     try {
-      const response = await fetch(`/api/v1/hummings/${HUMMING_ID}/vectors`, {
+      // 주소 및 Body 페이로드에 스토어의 hummingId를 동적 매핑
+      const response = await fetch(`/api/v1/hummings/${hummingId}/vectors`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           "Authorization": "Bearer YOUR_TOKEN_HERE" // 실제 토큰 교체 필요
         },
         body: JSON.stringify({
-          humming_id: HUMMING_ID,
+          humming_id: hummingId,
           notes: notes,
         }),
       });
 
       if (response.ok) {
-        navigate("/concept");
+        navigate("/concept"); // 저장 완료 후 다음 단계인 컨셉 설정 페이지로 이동
       } else {
         const errorData = await response.json().catch(() => ({}));
         console.error("저장 실패:", response.status, errorData);
@@ -310,8 +322,8 @@ export default function MelodyEditorPage() {
   };
 
   const handleReset = () => {
-    if(window.confirm("편집 내용을 초기화하시겠습니까?")) {
-       window.location.reload(); 
+    if (window.confirm("편집 내용을 초기화하시겠습니까?")) {
+      window.location.reload(); 
     }
   };
 
@@ -408,7 +420,6 @@ export default function MelodyEditorPage() {
                   className="w-full border-t border-gray-600/40 absolute" 
                   style={{ top: `${(index / 3) * 100}%` }}
                 >
-                  {/* 최상단이나 최하단 텍스트 잘림 방지 */}
                   <span className={`absolute left-3 text-xs font-semibold text-gray-500 ${index === 0 ? 'top-1' : index === 3 ? '-top-5' : '-top-4'}`}>
                     {note}
                   </span>

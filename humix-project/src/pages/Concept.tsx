@@ -16,7 +16,7 @@ const IconClapperboard = () => <span>🎬</span>;
 const genres = [
   { id: "kpop", name: "K-POP", icon: IconMusic, description: "밝고 중독적인 멜로디" },
   { id: "classical", name: "Classical", icon: IconViolin, description: "화성학-구조적 완성도" },
-  { id: "Jazz", name: "Jazz", icon: IconJazz, description: "복잡한 화음-즉흥 연주" }, // api 명세서 기준 대문자 J
+  { id: "Jazz", name: "Jazz", icon: IconJazz, description: "복잡한 화음-즉흥 연주" }, 
   { id: "cinematic", name: "Cinematic", icon: IconClapperboard, description: "웅장하고 감성적인 OST" },
 ];
 
@@ -36,14 +36,20 @@ type GenreId = typeof genres[number]['id'];
 type MoodId = typeof moods[number]['id'];
 
 export default function Concept() {
-  const [selectedGenre, setSelectedGenre] = useState<GenreId | null>("kpop");
-  const [selectedMoods, setSelectedMoods] = useState<MoodId[]>(["bright_exciting"]);
-  
-  // 페이지 이동 함수 초기화
   const navigate = useNavigate();
   
-  // Zustand 스토어에서 데이터 저장 함수 꺼내오기
+  // 🌟 스토어에 정의된 정확한 변수명(selectedGenre, selectedMoods)으로 꺼내옵니다.
+  const savedGenre = useConceptStore((state) => state.selectedGenre);
+  const savedMoods = useConceptStore((state) => state.selectedMoods);
   const setConcept = useConceptStore((state) => state.setConcept);
+
+  // useState의 초기값을 스토어 값으로 설정합니다. 
+  const [selectedGenre, setSelectedGenre] = useState<GenreId | null>(
+    (savedGenre as GenreId) || "kpop"
+  );
+  const [selectedMoods, setSelectedMoods] = useState<MoodId[]>(
+    savedMoods && savedMoods.length > 0 ? (savedMoods as MoodId[]) : ["bright_exciting"]
+  );
 
   // 분위기 선택 핸들러 (무조건 1개만 선택되도록 배열을 덮어씌움)
   const handleMoodToggle = (moodId: MoodId) => {
@@ -52,11 +58,10 @@ export default function Concept() {
 
   // 다음 페이지로 넘어가는 핸들러 함수
   const handleNextStep = () => {
-    // 1. Zustand 전역 상태(Store)에 현재 선택한 장르와 분위기를 저장
-    // (여기서 저장된 값은 Reference 페이지 완료 후 최종 API 호출 시 꺼내서 전송됩니다!)
+    // Zustand 전역 상태(Store)에 현재 선택한 장르와 분위기를 저장
     setConcept(selectedGenre, selectedMoods);
     
-    // 2. 다음 단계인 참고 음악 선택 페이지(Reference.tsx)의 라우터 경로로 이동
+    // 다음 단계인 참고 음악 선택 페이지(Reference.tsx)의 라우터 경로로 이동
     navigate('/reference'); 
   };
 
@@ -65,10 +70,10 @@ export default function Concept() {
       <div className="max-w-6xl mx-auto">
 
         {/* Stepper 적용 (현재 단계: 3. 컨셉) */}
-          <div className="w-full bg-[#1A1D24] rounded-lg p-5 border border-gray-800 shadow-sm flex items-center justify-center">
-            <Stepper currentStep={3} />
-          </div>
-          <br></br>
+        <div className="w-full bg-[#1A1D24] rounded-lg p-5 border border-gray-800 shadow-sm flex items-center justify-center">
+          <Stepper currentStep={3} />
+        </div>
+        <br></br>
         
         {/* 상단 타이틀 영역 */}
         <div className="mb-10">
