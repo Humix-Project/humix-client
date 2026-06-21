@@ -91,6 +91,45 @@ export function audioBufferDurationSec(buffer: AudioBuffer): number {
   return buffer.length / buffer.sampleRate;
 }
 
+// ── 실제 파형 추출 ───────────────────────────────────────────
+// AudioBuffer를 barCount개 구간으로 나눠, 각 구간의 피크 진폭(0~100)을 뽑는다.
+// Waveform 컴포넌트가 기대하는 bars 배열(0~100 범위) 포맷과 동일하게 반환.
+export function audioBufferToBars(
+  buffer: AudioBuffer,
+  barCount = 80,
+): number[] {
+  // 채널이 여러 개면 평균내서 모노로 합침
+  const numChannels = buffer.numberOfChannels;
+  const length = buffer.length;
+  const merged = new Float32Array(length);
+  for (let ch = 0; ch < numChannels; ch++) {
+    const data = buffer.getChannelData(ch);
+    for (let i = 0; i < length; i++) {
+      merged[i] += data[i] / numChannels;
+    }
+  }
+
+  const samplesPerBar = Math.max(1, Math.floor(length / barCount));
+  const bars: number[] = [];
+
+  for (let i = 0; i < barCount; i++) {
+    const start = i * samplesPerBar;
+    const end = i === barCount - 1 ? length : start + samplesPerBar;
+
+    let peak = 0;
+    for (let j = start; j < end; j++) {
+      const abs = Math.abs(merged[j]);
+      if (abs > peak) peak = abs;
+    }
+
+    // 0~1 범위의 진폭을 15~100 범위로 매핑 (기존 makeWave와 동일한 시각적 최소 높이 유지)
+    const scaled = Math.min(100, 15 + peak * 85);
+    bars.push(scaled);
+  }
+
+  return bars;
+}
+
 // AudioBuffer -> 16bit PCM WAV ArrayBuffer
 export function audioBufferToWav(buffer: AudioBuffer): ArrayBuffer {
   const numChannels = buffer.numberOfChannels;
