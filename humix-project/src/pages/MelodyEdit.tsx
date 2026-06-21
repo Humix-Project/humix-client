@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import Stepper from "../components/Stepper"; 
 import { useHummingStore } from "../store/useHummingStore"; // Zustand 스토어 import
+import { useAuthStore } from "../store/useAuthStore"; // Auth 스토어 추가 (경로는 프로젝트에 맞게 수정하세요)
 
 // ── API 명세 기반 응답 타입 정의 ──
 type MelodyNote = {
@@ -35,6 +36,7 @@ export default function MelodyEditorPage() {
   const [notes, setNotes] = useState<MelodyNote[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null); // 에러 상태 추가
 
   // 드래그(편집) 상태 관리
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
@@ -45,19 +47,19 @@ export default function MelodyEditorPage() {
     if (!hummingId) {
       console.warn("저장된 허밍 ID가 없습니다. 이전 페이지로 이동합니다.");
       alert("허밍 ID를 찾을 수 없습니다. 녹음을 먼저 진행해 주세요.");
-      navigate("/create"); // 실제 프로젝트의 녹음 페이지 경로에 맞게 수정하세요
+      navigate("/create-music"); // 실제 프로젝트의 녹음 페이지 경로에 맞게 수정.
       return;
     }
 
     async function fetchMelodyData() {
       setIsLoading(true);
+      setLoadError(null); // 로드 시작 시 에러 초기화
       try {
-        // 하드코딩된 ID 대신 템플릿 리터럴로 스토어의 hummingId 전달
         const response = await fetch(`/api/v1/hummings/${hummingId}/vectors`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": "Bearer YOUR_TOKEN_HERE" // 실제 인증 토큰 구조에 맞게 교체 필요
+            "Authorization": `Bearer ${useAuthStore.getState().accessToken}` // 토큰 교체
           },
           body: JSON.stringify({}),
         });
@@ -65,19 +67,21 @@ export default function MelodyEditorPage() {
         if (response.ok) {
           const data = await response.json();
           console.log("API 응답 데이터:", data);
-          setNotes(data.notes || []);
+          setNotes(data.result?.notes || []); // 응답 파싱 구조 변경
         } else {
           console.error("API 호출 실패:", response.status);
+          setLoadError("멜로디 데이터를 불러오는데 실패했습니다."); // 에러 상태 업데이트
         }
       } catch (error) {
         console.error("네트워크 에러:", error);
+        setLoadError("네트워크 오류가 발생했습니다."); // 에러 상태 업데이트
       } finally {
         setIsLoading(false);
       }
     }
 
     fetchMelodyData();
-  }, [hummingId, navigate]); // 의존성 배열에 hummingId 추가
+  }, [hummingId, navigate]);
 
   // 2. 재생바 애니메이션 루프
   useEffect(() => {
@@ -298,7 +302,7 @@ export default function MelodyEditorPage() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": "Bearer YOUR_TOKEN_HERE" // 실제 토큰 교체 필요
+          "Authorization": `Bearer ${useAuthStore.getState().accessToken}` // 토큰 교체
         },
         body: JSON.stringify({
           humming_id: hummingId,
@@ -428,7 +432,7 @@ export default function MelodyEditorPage() {
             </div>
 
             {/* 상태 텍스트 (우측 상단) */}
-            {!isLoading && notes.length > 0 && (
+            {!isLoading && notes.length > 0 && !loadError && (
               <div className="absolute top-4 right-4 text-xs z-20 pointer-events-none flex flex-col items-end gap-1">
                 <span className="text-[#a78bfa]">✓ 데이터 로드 완료 (노트 {notes.length}개)</span>
                 {currentTime > 0 && (
@@ -439,9 +443,14 @@ export default function MelodyEditorPage() {
               </div>
             )}
 
+            {/* 로딩 및 에러 처리 (화면 표시용) */}
             {isLoading ? (
               <div className="absolute inset-0 flex items-center justify-center text-gray-400 z-20">
                 API 데이터를 불러오는 중...
+              </div>
+            ) : loadError ? (
+              <div className="absolute inset-0 flex items-center justify-center text-red-400 z-20 bg-black/30">
+                {loadError}
               </div>
             ) : (
               <canvas
