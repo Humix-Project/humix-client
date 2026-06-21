@@ -1,8 +1,6 @@
 import { useState } from 'react';
-// ✅ 페이지 이동을 위한 useNavigate 훅 임포트
 import { useNavigate } from 'react-router-dom';
 import Stepper from '../components/Stepper';
-// ✅ 이전에 만든 Zustand 스토어 임포트
 import { useConceptStore } from '../store/useConceptStore';
 
 // 아이콘은 lucide-react 대신 텍스트/이모지를 사용하거나,
@@ -12,23 +10,36 @@ const IconViolin = () => <span>🎻</span>;
 const IconJazz = () => <span>🎷</span>;
 const IconClapperboard = () => <span>🎬</span>;
 
-// 💡 API 명세서의 <곡 생성 장르> enum 값과 100% 일치하도록 id 수정 (Jazz 대문자 주의)
 const genres = [
   { id: "kpop", name: "K-POP", icon: IconMusic, description: "밝고 중독적인 멜로디" },
   { id: "classical", name: "Classical", icon: IconViolin, description: "화성학-구조적 완성도" },
-  { id: "Jazz", name: "Jazz", icon: IconJazz, description: "복잡한 화음-즉흥 연주" }, 
+  { id: "jazz", name: "Jazz", icon: IconJazz, description: "복잡한 화음-즉흥 연주" }, 
   { id: "cinematic", name: "Cinematic", icon: IconClapperboard, description: "웅장하고 감성적인 OST" },
 ];
 
+
 const moods = [
-  { id: "bright_exciting", name: "밝고 신나는", emoji: "☀️" },
-  { id: "dark_emotional", name: "어둡고 감성적", emoji: "🌙" },
-  { id: "calm_comfortable", name: "차분하고 편안한", emoji: "🍃" },
-  { id: "intense_grand", name: "강렬하고 웅장한", emoji: "⚡️" },
-  { id: "dreamy_lazy", name: "몽환적이고 나른한", emoji: "🌸" },
-  { id: "passionate", name: "열정적인", emoji: "🔥" },
-  { id: "melancholy_lonely", name: "쓸쓸하고 고독한", emoji: "❄️" },
-  { id: "festival_like", name: "축제 같은", emoji: "🎉" },
+  { id: "intense", name: "강렬한", emoji: "⚡️" },
+  { id: "dynamic", name: "역동적인", emoji: "🏃" },
+  { id: "anxious", name: "불안한", emoji: "😰" },
+  { id: "epic", name: "웅장한", emoji: "🏰" },
+  { id: "tense", name: "긴장된", emoji: "😬" },
+  { id: "grand", name: "장엄한", emoji: "⛰️" },
+  { id: "dark", name: "어두운", emoji: "🌙" },
+  { id: "sentimental", name: "감성적인", emoji: "💌" },
+  { id: "sad", name: "슬픈", emoji: "💧" },
+  { id: "melancholic", name: "쓸쓸한", emoji: "🍂" },
+  //오타 수정 
+  { id: "nostalgic", name: "그리운", emoji: "🕰️" },
+  { id: "dreamy", name: "몽환적인", emoji: "🌸" },
+  { id: "exciting", name: "신나는", emoji: "😆" },
+  { id: "energetic", name: "활기찬", emoji: "🔥" },
+  { id: "cheerful", name: "경쾌한", emoji: "🎶" },
+  { id: "bright", name: "밝은", emoji: "☀️" },
+  { id: "warm", name: "따뜻한", emoji: "☕" },
+  { id: "peaceful", name: "평화로운", emoji: "🕊️" },
+  { id: "cozy", name: "포근한", emoji: "🧸" },
+  { id: "calm", name: "잔잔한", emoji: "🍃" },
 ];
 
 // 타입 정의
@@ -38,7 +49,7 @@ type MoodId = typeof moods[number]['id'];
 export default function Concept() {
   const navigate = useNavigate();
   
-  // 🌟 스토어에 정의된 정확한 변수명(selectedGenre, selectedMoods)으로 꺼내옵니다.
+  //스토어에 정의된 정확한 변수명(selectedGenre, selectedMoods)으로 꺼내옵니다.
   const savedGenre = useConceptStore((state) => state.selectedGenre);
   const savedMoods = useConceptStore((state) => state.selectedMoods);
   const setConcept = useConceptStore((state) => state.setConcept);
@@ -47,8 +58,10 @@ export default function Concept() {
   const [selectedGenre, setSelectedGenre] = useState<GenreId | null>(
     (savedGenre as GenreId) || "kpop"
   );
+  
+  // 초기 선택값을 명세서에 존재하는 단일 Enum 값인 "bright"로 안전하게 설정했습니다.
   const [selectedMoods, setSelectedMoods] = useState<MoodId[]>(
-    savedMoods && savedMoods.length > 0 ? (savedMoods as MoodId[]) : ["bright_exciting"]
+    savedMoods && savedMoods.length > 0 ? (savedMoods as MoodId[]) : ["bright"]
   );
 
   // 분위기 선택 핸들러 (무조건 1개만 선택되도록 배열을 덮어씌움)
