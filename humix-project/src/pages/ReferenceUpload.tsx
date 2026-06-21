@@ -22,6 +22,36 @@ import { useState, useRef, useCallback } from "react";
 // ✅ 추가: 페이지 이동을 위한 useNavigate 훅 임포트
 import { useNavigate } from "react-router-dom";
 import Stepper from "../components/Stepper";
+// 🔌 API 연결 보류: 업로드 API 재활성화 시 사용할 인증 스토어. 현재는 getAccessToken()이
+//                 호출되지 않아 실제로 쓰이진 않지만, 미리 연결해 둠.
+import { useAuthStore } from "../store/useAuthStore";
+
+// 🔌 API 연결 보류: 아래 타입/상수/함수들은 참고 음악 업로드 API용으로 작성했으나,
+//                 백엔드 미준비로 API 호출 코드 자체가 주석 처리되어 현재는 어디서도 쓰이지 않음.
+//                 빌드 시 TS6133/TS6196(미사용 선언) 에러가 나는 것을 막기 위해 임시로 export 처리.
+//                 백엔드 연동 재개 시 export 키워드를 떼고 정상적으로 사용하면 됨.
+
+// 🔌 API 연결: API 응답 Envelope 공통 타입 ({ code, message, data } 패턴, API 명세서 3.4 참고)
+export interface ApiEnvelope<T> {
+  code: number;
+  message: string;
+  data: T;
+}
+
+// 🔌 API 연결: [API-1] presigned URL 발급 응답 타입 (API 명세서 3.4.1.3)
+export interface PresignedUrlResponse {
+  presigned_url: string;
+  file_key: string;
+}
+
+// 🔌 API 연결: [API-3] 참조곡 DB 저장 응답 타입 (API 명세서 3.4.1.5)
+export interface ReferenceTrackResponse {
+  reference_track_id: number;
+  audio_name: string;
+  file_url: string;
+  duration_seconds: number;
+  created_at: string;
+}
 
 export default function ReferenceUpload() {
   // ── 상태 관리 ──────────────────────────────────────────────────────────────
@@ -34,13 +64,30 @@ export default function ReferenceUpload() {
   // ✅ 추가: 페이지 이동 함수 초기화
   const navigate = useNavigate();
 
-  // TODO: [API-3] 업로드 완료 후 서버에서 받은 reference_track_id 저장
-  // const [referenceTrackId, setReferenceTrackId] = useState<number | null>(null);
+  // 🔌 API 연결 보류: [API-3] 업로드 완료 후 서버에서 받은 reference_track_id 저장용 state.
+  // 비고: 현재 업로드 API 자체가 비활성화(더미 시뮬레이션)되어 있어 이 state는 사용되지 않음.
+  //       백엔드 연동 재개 시 uploadFile() 내부에서 setReferenceTrackId(...)로 다시 채워질 예정.
+  // TODO: 실제로는 Zustand store(useConceptStore 등)에도 같이 저장해야 다음 페이지(Generation.tsx)에서
+  //       reference_track_id를 곡 생성 요청 시 사용할 수 있음. 현재 store에는 해당 필드가 없어 보여
+  //       우선 로컬 state로만 관리하고, store 쪽 필드가 추가되면 setReferenceTrackId 호출부에서 같이 반영할 것.
+  const [referenceTrackId, setReferenceTrackId] = useState<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const ACCEPTED_TYPES = ["audio/mpeg", "audio/wav"];
   const MAX_SIZE_MB = 50;
+
+  // 🔌 API 연결 보류: API Base URL. 참고 음악 업로드 API가 비활성화되어 있어 현재는 사용되지 않음.
+  // TODO: 실제 배포 시 .env (VITE_API_BASE_URL 등)로 분리할 것
+  const API_BASE_URL = "/api/v1";
+  void API_BASE_URL;
+
+  // 🔌 API 연결 보류: 인증 토큰 가져오기. 현재 업로드 API가 비활성화되어 있어 호출되지 않음.
+  // useAuthStore에서 게스트 로그인으로 발급받은 access_token을 가져오도록 미리 연결해 둠.
+  const getAccessToken = (): string | null => {
+    return useAuthStore.getState().accessToken;
+  };
+  void getAccessToken;
 
   // ── 파일 유효성 검사 & 업로드 처리 ─────────────────────────────────────────
   const handleFile = useCallback((file: File) => {
@@ -62,41 +109,99 @@ export default function ReferenceUpload() {
     setUploadProgress(0);
     setIsUploading(true);
 
+    // 🔌 API 연결 보류: 참고 음악 업로드는 백엔드 작업 우선순위에서 빠져 있어, 현재는 UI 동작 확인을 위한
+    //                 더미 진행률 시뮬레이션으로 되돌려둠. 백엔드 준비되면 아래 주석(uploadFile) 해제하고
+    //                 더미 시뮬레이션 블록을 제거할 것. API 자체는 명세서 3.4.1.3 / 3.4.1.5에 정의되어 있음.
+    // TODO: duration_seconds는 AudioContext로 파싱해야 하나, 우선 0으로 고정.
+    //       추후 오디오 길이 파싱 로직 추가 시 이 값을 교체할 것.
+
     // ──────────────────────────────────────────────────────────────────────────
-    // TODO: 실제 API 연결 시 아래 시뮬레이션 코드를 제거하고
-    //       아래 흐름으로 교체하세요:
+    // 🔌 API 연결 (보류): 백엔드 준비되면 아래 주석을 해제하고, 바로 아래의
+    //                   [임시] 시뮬레이션 블록을 제거할 것.
     //
-    //   1) [API-1] Presigned URL 발급
-    //      const { presigned_url, file_key } = await fetch('/api/v1/upload/audio/presigned', {
-    //        method: 'POST',
-    //        headers: { 'Content-Type': 'application/json' },
-    //        body: JSON.stringify({
-    //          audio_name: file.name,
-    //          content_type: file.type,  // 'audio/mpeg' or 'audio/wav'
-    //          usage: 'REFERENCE',
-    //        }),
-    //      }).then(r => r.json());
+    // const uploadFile = async () => {
+    //   try {
+    //     const accessToken = getAccessToken();
     //
-    //   2) [API-2] S3 직접 업로드 (FormData 아님! 파일 객체 그대로)
-    //      await fetch(presigned_url, {
-    //        method: 'PUT',
-    //        headers: { 'Content-Type': file.type },
-    //        body: file,
-    //      });
+    //     // 1) [API-1] Presigned URL 발급 (API 명세서 3.4.1.3)
+    //     // 비고: API 명세서 enum 테이블(3.4.0.2)에는 오디오 분류가 HUMMING / REFERNCE(원문 오타) 두 가지뿐이며,
+    //     //       usage 값으로 "REFERENCE"가 아니라 "REFERNCE"를 써야 할 수 있음. 백엔드와 enum 철자 확인 필요.
+    //     const presignedRes = await fetch(`${API_BASE_URL}/upload/audio/presigned`, {
+    //       method: "POST",
+    //       headers: {
+    //         "Content-Type": "application/json",
+    //         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    //       },
+    //       body: JSON.stringify({
+    //         audio_name: file.name,
+    //         content_type: file.type, // 'audio/mpeg' or 'audio/wav'
+    //         usage: "REFERENCE", // TODO: 백엔드 enum 철자("REFERNCE") 확인 후 필요 시 수정
+    //       }),
+    //     });
     //
-    //   3) [API-3] DB 저장 요청
-    //      const { reference_track_id } = await fetch('/api/v1/upload/reference-tracks', {
-    //        method: 'POST',
-    //        headers: { 'Content-Type': 'application/json' },
-    //        body: JSON.stringify({
-    //          file_key,
-    //          audio_name: file.name,
-    //          duration_seconds: 0, // TODO: 오디오 재생 시간 파싱 필요 (AudioContext 활용)
-    //        }),
-    //      }).then(r => r.json());
+    //     if (!presignedRes.ok) {
+    //       throw new Error("presigned URL 발급 실패");
+    //     }
     //
-    //      setReferenceTrackId(reference_track_id); // 전역 상태(Zustand)에도 저장 필요
-    //      setUploadDone(true);
+    //     const presignedJson: ApiEnvelope<PresignedUrlResponse> = await presignedRes.json();
+    //     const { presigned_url, file_key } = presignedJson.data;
+    //
+    //     // 진행률 표시용: presigned 발급 완료 시점을 10%로 가정
+    //     setUploadProgress(10);
+    //
+    //     // 2) [API-2] S3 직접 업로드 (FormData 아님! 파일 객체 그대로, API 명세서 3.4.3.1)
+    //     const s3Res = await fetch(presigned_url, {
+    //       method: "PUT",
+    //       headers: { "Content-Type": file.type },
+    //       body: file,
+    //     });
+    //
+    //     if (!s3Res.ok) {
+    //       throw new Error("S3 업로드 실패");
+    //     }
+    //
+    //     // 진행률 표시용: S3 업로드 완료 시점을 80%로 가정
+    //     // TODO: 실제 업로드 진행률(%)이 필요하면 fetch 대신 XMLHttpRequest의 upload.onprogress를 사용해야 함
+    //     //       (fetch는 표준 API만으로는 업로드 진행률 이벤트를 지원하지 않음)
+    //     setUploadProgress(80);
+    //
+    //     // 3) [API-3] DB 저장 요청 (API 명세서 3.4.1.5)
+    //     const saveRes = await fetch(`${API_BASE_URL}/upload/reference-tracks`, {
+    //       method: "POST",
+    //       headers: {
+    //         "Content-Type": "application/json",
+    //         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    //       },
+    //       body: JSON.stringify({
+    //         file_key,
+    //         audio_name: file.name,
+    //         duration_seconds: 0, // TODO: 오디오 재생 시간 파싱 필요 (AudioContext 활용) - 우선 0으로 고정
+    //       }),
+    //     });
+    //
+    //     if (!saveRes.ok) {
+    //       throw new Error("참조곡 정보 저장 실패");
+    //     }
+    //
+    //     const saveJson: ApiEnvelope<ReferenceTrackResponse> = await saveRes.json();
+    //     setReferenceTrackId(saveJson.data.reference_track_id);
+    //     // TODO: Zustand store에도 reference_track_id 저장 필요
+    //     // 예) useConceptStore.getState().setReferenceTrackId(saveJson.data.reference_track_id);
+    //
+    //     setUploadProgress(100);
+    //     setIsUploading(false);
+    //     setUploadDone(true);
+    //   } catch (err) {
+    //     // TODO: 에러 상태 UI가 별도로 없어 우선 alert + 업로드 상태 초기화 처리.
+    //     //       Generation.tsx의 status === 'error' 케이스처럼 별도 에러 상태 UI 추가를 고려할 것.
+    //     console.error("[참고 음악 업로드 오류]", err);
+    //     alert("참고 음악 업로드 중 오류가 발생했어요. 다시 시도해주세요.");
+    //     setIsUploading(false);
+    //     setUploadProgress(0);
+    //   }
+    // };
+    //
+    // uploadFile();
     // ──────────────────────────────────────────────────────────────────────────
 
     // ── [임시] 업로드 진행률 시뮬레이션 (API 연결 전 UI 확인용) ──────────────
@@ -139,8 +244,9 @@ export default function ReferenceUpload() {
     setUploadDone(false);
     setUploadProgress(0);
     setIsUploading(false);
-    // TODO: referenceTrackId 초기화도 필요
-    // setReferenceTrackId(null);
+    // 🔌 API 연결: referenceTrackId 초기화
+    setReferenceTrackId(null);
+    // TODO: Zustand store의 referenceTrackId도 함께 null로 초기화 필요
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -156,9 +262,10 @@ export default function ReferenceUpload() {
 
   // ── 다음 단계 이동 핸들러 ─────────────────────────────────────────────────
   const handleNext = () => {
-    // TODO: Zustand store에 referenceTrackId 저장 후 이동
-    //   useStore.getState().setReferenceTrackId(referenceTrackId);
-    console.log("다음: AI 생성 페이지로 이동");
+    // 🔌 API 연결: Zustand store에 referenceTrackId 저장 후 이동
+    // TODO: store에 referenceTrackId 필드 추가되는 대로 아래 주석 해제
+    //   useConceptStore.getState().setReferenceTrackId(referenceTrackId);
+    console.log("다음: AI 생성 페이지로 이동", { referenceTrackId });
     
     // ✅ 추가: 5단계 AI 생성 페이지(/generation)로 이동합니다.
     navigate('/generation');
@@ -166,7 +273,7 @@ export default function ReferenceUpload() {
 
   // ── 건너뛰기 핸들러 ──────────────────────────────────────────────────────
   const handleSkip = () => {
-    // TODO: 참고 음악 없이 AI 생성 페이지로 이동
+    // 🔌 API 연결: 참고 음악 없이 AI 생성 페이지로 이동
     // TODO: Zustand store의 referenceTrackId는 null로 유지
     console.log("건너뛰기: 참고 음악 없이 진행");
 

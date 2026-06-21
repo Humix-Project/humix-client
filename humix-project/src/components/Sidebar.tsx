@@ -2,6 +2,13 @@ import { useState } from "react";
 // ✅ 추가: 게스트 계정 부여를 위해 useEffect 임포트 추가
 import { useEffect } from "react";
 import { NavLink } from "react-router-dom";
+// 🔌 API 연결: 게스트 로그인(access_token 발급)을 전담하는 스토어로 교체
+// 기존에는 이 파일 안에서 로컬스토리지에 닉네임만 만들어 저장했지만,
+// 실제 백엔드 인증(POST /api/v1/auth/guest-login)은 useAuthStore가 전담하도록 분리함.
+// 이유: 발급받은 access_token은 Sidebar뿐 아니라 곡 생성(Generation.tsx) 등
+//      다른 페이지에서도 공통으로 필요하기 때문에, 특정 컴포넌트에 가두지 않고
+//      전역 스토어에서 관리해야 함.
+import { useAuthStore } from "../store/useAuthStore";
 
 //1. 네비게이션 아이템과 섹션 타입 정의
 interface NavItem {
@@ -50,8 +57,15 @@ const navSections: NavSection[] = [
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(true);
 
-  // Guest 유저 상태 정보 -> 로그인 기능 구현 후 실제걸로 대체해야됨
-  // ✅ 수정: 기존 정적 변수에서 useState를 사용해 상태로 관리하도록 변경했습니다.
+  // 🔌 API 연결: Guest 유저 상태 정보를 useAuthStore에서 가져옴
+  // - accessToken: 로그인 성공 여부 판단 및 다른 페이지에서 API 호출 시 사용
+  // - loginAsGuest: 게스트 로그인 요청 함수 (POST /api/v1/auth/guest-login)
+  const accessToken = useAuthStore((state) => state.accessToken);
+  const loginAsGuest = useAuthStore((state) => state.loginAsGuest);
+
+  // ✅ 수정: 화면에 보여줄 닉네임은 기존처럼 로컬에서 생성/보관.
+  // 비고: 이 닉네임은 명세서의 device_id와는 별개의 "화면 표시용" 값임.
+  //       device_id(서버 인증용 UUID)는 useAuthStore 내부에서 별도로 관리됨.
   const [user, setUser] = useState({
     name: "",
     plan: "무료 플랜",
@@ -60,7 +74,7 @@ export default function Sidebar() {
   // ✅ 추가: 홈 화면 접속 시 게스트 계정을 자동 생성하고 로컬 스토리지에 저장하는 로직
   useEffect(() => {
     const storedGuestId = localStorage.getItem("humix_guest_id");
-    
+
     if (storedGuestId) {
       // 1. 기존 방문 기록이 있으면 스토리지에서 가져옴
       setUser({ name: storedGuestId, plan: "무료 플랜" });
@@ -68,11 +82,18 @@ export default function Sidebar() {
       // 2. 첫 방문 시 UUID 텍스트 느낌으로 랜덤 4자리 코드를 만들어 즉시 부여 (버튼 클릭 동의 X)
       const randomCode = Math.random().toString(16).substring(2, 6);
       const newGuestName = `Guest_${randomCode}`;
-      
+
       localStorage.setItem("humix_guest_id", newGuestName);
       setUser({ name: newGuestName, plan: "무료 플랜" });
     }
   }, []);
+
+  // 🔌 API 연결: 앱 진입 시 실제 백엔드 게스트 로그인 요청 (access_token 발급)
+  // 비고: 위의 닉네임 로직과는 별개로 동작함. 닉네임은 화면 표시용, 이 호출은 실제 인증용.
+  //       loginAsGuest 내부에서 이미 토큰이 있거나 요청 중이면 중복 호출하지 않도록 가드되어 있음.
+  useEffect(() => {
+    loginAsGuest();
+  }, [loginAsGuest]);
 
   return (
     // 전체 사이드바
@@ -218,7 +239,10 @@ export default function Sidebar() {
                 {user.name}
               </span>
               <span className="text-white/40 text-[11px] mt-0.5 font-medium">
+                {/* 🔌 API 연결: 실제 로그인(access_token) 발급 여부를 plan 텍스트 옆에 표시
+                    TODO: 디자인팀과 협의해 별도 뱃지/아이콘으로 바꾸는 것도 고려 가능 */}
                 {user.plan}
+                {!accessToken && " · 연결 중..."}
               </span>
             </div>
           )}
