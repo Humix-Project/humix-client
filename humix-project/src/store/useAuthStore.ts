@@ -18,14 +18,23 @@
 //         실제 로그인 요청/토큰 보관은 이 스토어가 전담함.
 //         Generation.tsx, ReferenceUpload.tsx의 getAccessToken()도
 //         이 스토어(useAuthStore.getState().accessToken)로 교체 예정.
+//
+// ⚠️ 2026-06 수정: 실제 백엔드 응답 구조 실측 결과, PDF 명세서의
+//   { code, message, data } 형태가 아니라 { isSuccess, code, message, result }
+//   형태로 내려옴 (data가 아니라 result). 아래 ApiEnvelope 및 파싱 로직을
+//   실측 구조에 맞게 수정함.
+//   실측 예시 (presigned 401 응답):
+//   {"isSuccess":false,"code":"AUTH4000","message":"로그인이 필요한 기능입니다.","result":null}
 
-import { create } from 'zustand';
+import { create } from "zustand";
 
-// 🔌 API 연결: API 응답 Envelope 공통 타입 ({ code, message, data } 패턴, API 명세서 3.4 참고)
+// 🔌 API 연결: API 응답 Envelope 공통 타입
+// 실제 서버 응답 기준 ({isSuccess, code, message, result}) — PDF 명세서의 {code, message, data}와 다름
 interface ApiEnvelope<T> {
-  code: number;
+  isSuccess: boolean;
+  code: string;
   message: string;
-  data: T;
+  result: T;
 }
 
 // 🔌 API 연결: guest-login / silent-refresh 공통 응답 데이터 타입 (API 명세서 3.4.1.1, 3.4.1.2)
@@ -38,7 +47,7 @@ interface AuthResponse {
 // 기존 Sidebar.tsx의 humix_guest_id 로직(랜덤 4자리 코드)은 "화면에 보여줄 이름"용이었고,
 // 이 device_id는 "서버가 기기를 식별하기 위한 값"으로 용도가 다름. crypto.randomUUID()로 표준 UUID를 생성함.
 function getOrCreateDeviceId(): string {
-  const STORAGE_KEY = 'humix_device_id';
+  const STORAGE_KEY = "humix_device_id";
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored) return stored;
 
@@ -51,7 +60,7 @@ function getOrCreateDeviceId(): string {
 
 // 🔌 API 연결: API Base URL
 // TODO: 실제 배포 시 .env (VITE_API_BASE_URL 등)로 분리할 것
-const API_BASE_URL = '/api/v1';
+const API_BASE_URL = "/api/v1";
 
 // 스토어에서 다룰 데이터 타입 정의
 interface AuthState {
@@ -86,23 +95,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const deviceId = getOrCreateDeviceId();
 
       const res = await fetch(`${API_BASE_URL}/auth/guest-login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         // 비고: 응답의 refreshToken은 Set-Cookie로 내려오므로, 브라우저가 쿠키를 저장하려면
         //       credentials: 'include' 옵션이 필요함 (프론트-백엔드가 다른 origin일 경우 특히 중요).
-        credentials: 'include',
+        credentials: "include",
         body: JSON.stringify({ device_id: deviceId }),
       });
 
       if (!res.ok) {
-        throw new Error('게스트 로그인 실패');
+        throw new Error("게스트 로그인 실패");
       }
 
       const json: ApiEnvelope<AuthResponse> = await res.json();
-      set({ accessToken: json.data.access_token, isLoggingIn: false });
+
+      // 서버가 isSuccess: false로 200 이외의 비즈니스 에러를 줄 수도 있어 방어적으로 체크
+      if (!json.result) {
+        throw new Error(json.message || "게스트 로그인 실패");
+      }
+
+      set({ accessToken: json.result.access_token, isLoggingIn: false });
     } catch (err) {
-      console.error('[게스트 로그인 오류]', err);
-      set({ isLoggingIn: false, loginError: '로그인에 실패했습니다.' });
+      console.error("[게스트 로그인 오류]", err);
+      set({ isLoggingIn: false, loginError: "로그인에 실패했습니다." });
     }
   },
 
@@ -110,28 +125,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   refreshAccessToken: async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/auth/silent-refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         // 비고: refreshToken은 HttpOnly 쿠키라 JS로 직접 읽거나 헤더에 넣을 수 없음.
         //       credentials: 'include'로 요청하면 브라우저가 쿠키를 자동으로 함께 보내줌.
-        credentials: 'include',
+        credentials: "include",
         body: JSON.stringify({}),
       });
 
       if (!res.ok) {
         // refreshToken마저 만료된 경우 - 재로그인 필요
-        throw new Error('토큰 갱신 실패');
+        throw new Error("토큰 갱신 실패");
       }
 
       const json: ApiEnvelope<AuthResponse> = await res.json();
-      set({ accessToken: json.data.access_token });
+
+      if (!json.result) {
+        throw new Error(json.message || "토큰 갱신 실패");
+      }
+
+      set({ accessToken: json.result.access_token });
     } catch (err) {
-      console.error('[토큰 갱신 오류]', err);
+      console.error("[토큰 갱신 오류]", err);
       // 갱신 실패 시 로그아웃 상태로 전환 - TODO: 재로그인 유도 UI/리다이렉트 처리 필요
       set({ accessToken: null });
     }
   },
 
   // 상태를 초기화하는 함수
-  resetAuth: () => set({ accessToken: null, isLoggingIn: false, loginError: null }),
+  resetAuth: () =>
+    set({ accessToken: null, isLoggingIn: false, loginError: null }),
 }));

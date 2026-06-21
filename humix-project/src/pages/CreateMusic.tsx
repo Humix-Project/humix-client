@@ -2,12 +2,14 @@ import { useState, useRef } from "react";
 import Stepper from "../components/Stepper";
 import { useNavigate } from "react-router-dom";
 import { useHummingStore } from "../store/useHummingStore"; // ◀ 경로는 실제 프로젝트 구조에 맞게 조정
+import { useAuthStore } from "../store/useAuthStore"; // ◀ 게스트 로그인 토큰 보관 store
 import {
   webmBlobToWavBlob,
   blobToAudioBuffer,
   replaceAudioSegment,
   audioBufferDurationSec,
   audioBufferToWav,
+  audioBufferToBars,
 } from "../utils/audioUtils"; // ◀ 경로는 실제 프로젝트 구조에 맞게 조정
 
 // ── 타입 ──────────────────────────────────────────────────────
@@ -218,14 +220,24 @@ export default function CreateMusic() {
 
     const dur = finalSec ?? elapsed;
 
-    mediaRecorder.onstop = () => {
+    mediaRecorder.onstop = async () => {
       const webmBlob = new Blob(recordedChunksRef.current, {
         type: "audio/webm",
       });
 
+      // 실제 녹음된 오디오의 진폭을 분석해 파형을 그림 (실패 시 임의 파형으로 폴백)
+      let bars: number[];
+      try {
+        const audioBuffer = await blobToAudioBuffer(webmBlob);
+        bars = audioBufferToBars(audioBuffer, 80);
+      } catch (err) {
+        console.error("파형 분석 실패, 임의 파형으로 대체:", err);
+        bars = makeWave(80);
+      }
+
       const newVer: RecordingVersion = {
         id: Date.now(),
-        bars: makeWave(80),
+        bars,
         durationSec: dur || 1,
         label: versions.length === 0 ? "원본" : `재녹음 ${versions.length}`,
         blob: webmBlob,
@@ -334,8 +346,9 @@ export default function CreateMusic() {
         });
         const newDurationSec = audioBufferDurationSec(mergedBuffer);
 
-        // 파형도 새 오디오 길이에 맞춰 재생성 (실제 진폭 기반은 아니고 시각 효과용)
-        const newBars = makeWave(80);
+        // 합성된 실제 오디오에서 파형 추출 (patchStart~patchEnd 표시는 비율 기준이라
+        // 길이가 바뀌어도 동일한 selection 비율을 그대로 사용)
+        const newBars = audioBufferToBars(mergedBuffer, 80);
 
         const newVer: RecordingVersion = {
           id: Date.now(),
@@ -395,7 +408,7 @@ export default function CreateMusic() {
     setUploadError(null);
 
     try {
-      const accessToken = localStorage.getItem("access_token");
+      const accessToken = useAuthStore.getState().accessToken;
       if (!accessToken) {
         throw new Error("로그인이 필요합니다.");
       }
@@ -410,9 +423,13 @@ export default function CreateMusic() {
       const audioName = `${ver.label}_${Date.now()}.wav`;
 
       // 2) Presigned URL 발급 — 3.4.1.3
+      //    ⚠️ 실측 결과 명세서(PDF)와 달리 이 API도 로그인(Authorization) 필요함
       const presignedRes = await fetch("/api/v1/upload/audio/presigned", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
           audio_name: audioName,
           content_type: "audio/wav",
@@ -425,7 +442,10 @@ export default function CreateMusic() {
           `presigned URL 발급 실패 (${presignedRes.status})${errBody ? `: ${errBody}` : ""}`,
         );
       }
-      const { presigned_url, file_key } = await presignedRes.json();
+      // ⚠️ 실측 결과 응답은 { isSuccess, code, message, result } Envelope이며
+      // 실제 데이터는 result 안에 있음 (PDF 명세서의 data 키가 아님)
+      const presignedJson = await presignedRes.json();
+      const { presigned_url, file_key } = presignedJson.result;
 
       // 3) S3에 실제 파일 업로드 — 3.4.3.1 (FormData로 감싸지 않고 바이너리 그대로 전송)
       const s3Res = await fetch(presigned_url, {
@@ -458,7 +478,9 @@ export default function CreateMusic() {
           `허밍 저장 실패 (${saveRes.status})${errBody ? `: ${errBody}` : ""}`,
         );
       }
-      const saveData = await saveRes.json();
+      // ⚠️ 실측 결과 응답은 { isSuccess, code, message, result } Envelope
+      const saveJson = await saveRes.json();
+      const saveData = saveJson.result;
       // saveData: { humming_id, file_url, duration_seconds, created_at }
 
       // 5) zustand에 humming_id 저장 — 다음 단계(멜로디 벡터 변환)에서 사용
