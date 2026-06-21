@@ -26,6 +26,12 @@ import Stepper from '../components/Stepper';
 //             fetch 기반으로 헤더를 자유롭게 설정 가능한 라이브러리로 교체 (명세서 비고: "헤더 수정 불가 시 외부 라이브러리 사용" 지침 반영)
 //             설치: npm install @microsoft/fetch-event-source
 import { fetchEventSource } from '@microsoft/fetch-event-source';
+// 🔌 API 연결: 로그인(게스트) 시 발급받은 access_token을 가져오기 위해 auth 스토어 연결
+import { useAuthStore } from '../store/useAuthStore';
+// 🔌 API 연결: 장르/분위기 선택값을 가져오기 위해 concept 스토어 연결
+import { useConceptStore } from '../store/useConceptStore';
+// 🔌 API 연결: 허밍 녹음 단계에서 저장된 humming_id를 가져오기 위해 humming 스토어 연결
+import { useHummingStore } from '../store/useHummingStore';
 
 // ── 생성 설정 요약 타입 ────────────────────────────────────────────────────
 // TODO: 실제 연결 시 Zustand store에서 가져오도록 교체
@@ -165,28 +171,33 @@ export default function Generation() {
   const API_BASE_URL = '/api/v1';
 
   // 🔌 API 연결: 인증 토큰 가져오기
-  // TODO: 인증 연동 전이라 임시로 비워둠. 인증 플로우 연결 후
-  //       실제 access_token 저장 위치(예: Zustand auth store)에서 가져오도록 교체해야 함.
+  // useAuthStore에서 게스트 로그인으로 발급받은 access_token을 가져옴.
+  // 비고: 컴포넌트 바깥(이벤트 핸들러 내부)에서 최신 값을 읽어야 하므로 훅(useAuthStore())이 아니라
+  //       getState()로 그 시점의 스냅샷을 가져오는 방식 사용. accessToken이 갱신될 때마다
+  //       컴포넌트를 리렌더링할 필요는 없어 구독(subscribe) 방식 대신 이 방식을 선택함.
   const getAccessToken = (): string | null => {
-    // TODO: 예) return useAuthStore.getState().accessToken;
-    return null;
+    return useAuthStore.getState().accessToken;
   };
 
   // 🔌 API 연결: store에서 곡 생성에 필요한 값 가져오기
-  // TODO: useConceptStore에는 genre, mood까지만 확인됨 (선택한 장르 1개 / 분위기 1개가 정상 반영됨을 확인).
-  //       humming_id, melody_vectors는 store에 아직 없는 값으로 보임 — 허밍/멜로디 편집 단계(UC1, UC2) 작업자와
-  //       필드 추가를 협의해야 함. 현재는 임시로 null/빈 배열을 사용하고 있어 실제 곡 생성 요청 시 백엔드에서
-  //       에러가 날 수 있음.
-  // import { useConceptStore } from '../store/useConceptStore';
-  // const { genre, mood, referenceTrackId } = useConceptStore();
+  // 비고: 팀원이 useHummingStore를 만들어 humming_id, melodyVectors를 보관하도록 구현해줌.
+  //       단, 명세서 3.4.1.8(POST /api/v1/generation/songs) Body 스펙에는 melody_vectors 필드가
+  //       원래 없음 (humming_id, title, genre, mood, reference_track_id만 받음 — melody_vectors는
+  //       백엔드가 humming_id로 내부 조회해서 쓰는 것으로 보임). 그래서 이 요청 payload에는 포함하지 않음.
+  //       3.4.2.1(AI 서버 내부 통신 규격)에는 melody_vectors가 있는데, 그건 백엔드↔AI 서버 간 통신이라
+  //       프론트가 직접 보낼 필요 없음.
+  // TODO: mood 값 enum 매핑 확인 필요 — 명세서 enum 테이블(3.4.0.2)에 "분위기" 항목이 비어있어
+  //       실제 허용값(예: exciting / bright_exciting 등)을 백엔드와 맞춰야 함.
+  //       지금은 useConceptStore의 selectedMoods[0]를 그대로 전달함.
   const getGenerationPayload = () => {
-    // TODO: 아래 값들을 store에서 가져오도록 교체
+    const { selectedGenre, selectedMoods } = useConceptStore.getState();
+    const { hummingId } = useHummingStore.getState();
+
     return {
-      humming_id: null as number | null, // TODO: store에 필드 없음 — 허밍 녹음 단계에서 받은 humming_id 연결 필요
-      genre: 'kpop', // TODO: useConceptStore의 genre 값으로 교체 (현재 enum 매핑 확인 필요: kpop/folks/classical/jazz/cinematic)
-      mood: 'exciting', // TODO: useConceptStore의 mood 값으로 교체
-      melody_vectors: [] as Array<{ pitch: number; onset_seconds: number; duration_seconds: number }>, // TODO: store에 필드 없음 — 멜로디 편집 단계(UC2) 결과 연결 필요
-      reference_track_id: null as number | null, // TODO: ReferenceUpload.tsx에서 저장한 reference_track_id 연결 필요
+      humming_id: hummingId, // useHummingStore에서 연결됨
+      genre: selectedGenre ?? 'kpop', // TODO: useConceptStore의 genre 값이 명세서 enum(folks/kpop/classical/jazz/cinematic)과 일치하는지 확인
+      mood: selectedMoods[0] ?? 'exciting', // TODO: mood enum 매핑 확인 필요 (위 비고 참고)
+      reference_track_id: null as number | null, // TODO: ReferenceUpload.tsx에서 저장한 reference_track_id 연결 필요 (현재 참고 음악 업로드 API 비활성화 상태)
     };
   };
 

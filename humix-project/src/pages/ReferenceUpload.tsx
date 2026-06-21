@@ -22,6 +22,9 @@ import { useState, useRef, useCallback } from "react";
 // ✅ 추가: 페이지 이동을 위한 useNavigate 훅 임포트
 import { useNavigate } from "react-router-dom";
 import Stepper from "../components/Stepper";
+// 🔌 API 연결 보류: 업로드 API 재활성화 시 사용할 인증 스토어. 현재는 getAccessToken()이
+//                 호출되지 않아 실제로 쓰이진 않지만, 미리 연결해 둠.
+import { useAuthStore } from "../store/useAuthStore";
 
 // 🔌 API 연결 보류: 아래 타입/상수/함수들은 참고 음악 업로드 API용으로 작성했으나,
 //                 백엔드 미준비로 API 호출 코드 자체가 주석 처리되어 현재는 어디서도 쓰이지 않음.
@@ -80,11 +83,9 @@ export default function ReferenceUpload() {
   void API_BASE_URL;
 
   // 🔌 API 연결 보류: 인증 토큰 가져오기. 현재 업로드 API가 비활성화되어 있어 호출되지 않음.
-  // TODO: 인증 연동 전이라 임시로 비워둠. 인증 플로우(3.4.1.1 guest-login 등) 연결 후
-  //       실제 access_token 저장 위치(예: Zustand auth store, 메모리 변수 등)에서 가져오도록 교체해야 함.
+  // useAuthStore에서 게스트 로그인으로 발급받은 access_token을 가져오도록 미리 연결해 둠.
   const getAccessToken = (): string | null => {
-    // TODO: 예) return useAuthStore.getState().accessToken;
-    return null;
+    return useAuthStore.getState().accessToken;
   };
   void getAccessToken;
 
