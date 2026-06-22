@@ -199,7 +199,11 @@ export default function Generation() {
   ) => {
     const accessToken = getAccessToken();
     const ctrl = new AbortController();
-    const url = `${API_BASE_URL}/generation/songs/tasks/${streamTaskId}/stream`;
+    
+    // Vercel 프록시의 10초 타임아웃 제한을 우회하기 위해 상용(Vercel) 환경에서는 EC2 백엔드 서버에 직접 연결합니다.
+    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+    const backendHost = isLocal ? "" : "https://humix.my-project.cloud";
+    const url = `${backendHost}${API_BASE_URL}/generation/songs/tasks/${streamTaskId}/stream`;
 
     fetchEventSource(url, {
       method: "GET",
