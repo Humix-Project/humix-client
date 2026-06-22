@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import Stepper from "../components/Stepper"; 
-import { useHummingStore } from "../store/useHummingStore"; // Zustand 스토어 import
-import { useAuthStore } from "../store/useAuthStore"; // Auth 스토어 추가 (경로는 프로젝트에 맞게 수정하세요)
+import { useHummingStore } from "../store/useHummingStore"; 
+import { useAuthStore } from "../store/useAuthStore";
 
 // ── API 명세 기반 응답 타입 정의 ──
 type MelodyNote = {
@@ -15,6 +15,9 @@ type MelodyNote = {
 const MIN_PITCH = 48; // C3
 const MAX_PITCH = 84; // C6
 const MAX_TIME = 8;   // 8 seconds
+
+// 🎵 MIDI 노트를 주파수(Hz)로 변환하는 유틸리티 함수
+const midiToFreq = (midi: number) => 440 * Math.pow(2, (midi - 69) / 12);
 
 export default function MelodyEditorPage() {
   const navigate = useNavigate();
@@ -32,34 +35,37 @@ export default function MelodyEditorPage() {
   const animationRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(0);
 
+  // 🎵 오디오 재생을 위한 Ref 추가
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const activeOscillatorsRef = useRef<OscillatorNode[]>([]);
+
   // API에서 받아온 피치 데이터를 저장할 상태
   const [notes, setNotes] = useState<MelodyNote[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null); // 에러 상태 추가
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // 드래그(편집) 상태 관리
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 
   // 1. 초기 데이터 로드 (API POST 요청)
   useEffect(() => {
-    // 방어 코드: 만약 스토어에 hummingId가 없다면 비정상적 접근이므로 이전 페이지로 이동
     if (!hummingId) {
       console.warn("저장된 허밍 ID가 없습니다. 이전 페이지로 이동합니다.");
       alert("허밍 ID를 찾을 수 없습니다. 녹음을 먼저 진행해 주세요.");
-      navigate("/create-music"); // 실제 프로젝트의 녹음 페이지 경로에 맞게 수정.
+      navigate("/create-music");
       return;
     }
 
     async function fetchMelodyData() {
       setIsLoading(true);
-      setLoadError(null); // 로드 시작 시 에러 초기화
+      setLoadError(null);
       try {
         const response = await fetch(`/api/v1/hummings/${hummingId}/vectors`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${useAuthStore.getState().accessToken}` // 토큰 교체
+            "Authorization": `Bearer ${useAuthStore.getState().accessToken}`
           },
           body: JSON.stringify({}),
         });
@@ -67,14 +73,14 @@ export default function MelodyEditorPage() {
         if (response.ok) {
           const data = await response.json();
           console.log("API 응답 데이터:", data);
-          setNotes(data.result?.notes || []); // 응답 파싱 구조 변경
+          setNotes(data.result?.notes || []);
         } else {
           console.error("API 호출 실패:", response.status);
-          setLoadError("멜로디 데이터를 불러오는데 실패했습니다."); // 에러 상태 업데이트
+          setLoadError("멜로디 데이터를 불러오는데 실패했습니다.");
         }
       } catch (error) {
         console.error("네트워크 에러:", error);
-        setLoadError("네트워크 오류가 발생했습니다."); // 에러 상태 업데이트
+        setLoadError("네트워크 오류가 발생했습니다.");
       } finally {
         setIsLoading(false);
       }
@@ -82,6 +88,59 @@ export default function MelodyEditorPage() {
 
     fetchMelodyData();
   }, [hummingId, navigate]);
+
+  // 🎵 소리 스케줄링 및 재생 함수
+  const playAudio = (startTime: number) => {
+    if (!audioCtxRef.current) {
+      // TS 에러(no-explicit-any) 해결: unknown을 거쳐서 타입 단언
+      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      audioCtxRef.current = new AudioContextClass();
+    }
+    const ctx = audioCtxRef.current;
+    
+    if (ctx.state === "suspended") ctx.resume();
+
+    const now = ctx.currentTime;
+
+    notes.forEach((note) => {
+      if (note.start_time_seconds >= startTime) {
+        const playTime = now + (note.start_time_seconds - startTime);
+        
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = "sine";
+        osc.frequency.value = midiToFreq(note.pitch);
+
+        gain.gain.setValueAtTime(0, playTime);
+        gain.gain.linearRampToValueAtTime(0.3, playTime + 0.05);
+        gain.gain.setValueAtTime(0.3, playTime + note.duration_seconds - 0.05);
+        gain.gain.linearRampToValueAtTime(0, playTime + note.duration_seconds);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(playTime);
+        osc.stop(playTime + note.duration_seconds);
+
+        activeOscillatorsRef.current.push(osc);
+      }
+    });
+  };
+
+  // 🎵 소리 정지 함수
+  const stopAudio = () => {
+    activeOscillatorsRef.current.forEach((osc) => {
+      try {
+        osc.stop();
+        osc.disconnect();
+      } catch {
+        // TS 에러(no-unused-vars) 해결: 안 쓰는 'e' 제거
+        // 이미 멈춘 노드 무시
+      }
+    });
+    activeOscillatorsRef.current = [];
+  };
 
   // 2. 재생바 애니메이션 루프
   useEffect(() => {
@@ -93,7 +152,7 @@ export default function MelodyEditorPage() {
         setCurrentTime((prev) => {
           const nextTime = prev + delta;
           if (nextTime >= MAX_TIME) {
-            setIsPlaying(false); // 끝에 도달하면 재생 정지
+            setIsPlaying(false);
             return MAX_TIME;
           }
           return nextTime;
@@ -104,22 +163,28 @@ export default function MelodyEditorPage() {
       animationRef.current = requestAnimationFrame(animate);
     } else {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      stopAudio(); // 🎵 재생이 멈추면 오디오도 정지
     }
 
     return () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      stopAudio(); // 🎵 컴포넌트 언마운트 시 오디오 정리
     };
   }, [isPlaying]);
 
   const togglePlayback = () => {
     if (isPlaying) {
       setIsPlaying(false);
+      stopAudio(); // 🎵 명시적 정지
     } else {
+      let nextTime = currentTime;
       if (currentTime >= MAX_TIME) {
+        nextTime = 0;
         setCurrentTime(0);
       }
       lastTimeRef.current = performance.now();
       setIsPlaying(true);
+      playAudio(nextTime); // 🎵 재생 스케줄링 시작
     }
   };
 
@@ -140,7 +205,6 @@ export default function MelodyEditorPage() {
 
     ctx.clearRect(0, 0, width, height);
 
-    // 노트를 시간 순으로 정렬하여 선 연결 보장
     const sortedNotes = [...notes].sort((a, b) => a.start_time_seconds - b.start_time_seconds);
 
     if (sortedNotes.length > 0) {
@@ -158,8 +222,8 @@ export default function MelodyEditorPage() {
         if (index === 0) {
           ctx.lineTo(x, y);
         } else {
-          ctx.lineTo(x, prevY); // 이전 높이 유지 (수평)
-          ctx.lineTo(x, y);     // 새로운 높이로 점프 (수직)
+          ctx.lineTo(x, prevY);
+          ctx.lineTo(x, y);
         }
         ctx.lineTo(x + noteWidth, y);
         prevY = y;
@@ -170,7 +234,6 @@ export default function MelodyEditorPage() {
       ctx.lineTo(lastX, height);
       ctx.closePath();
       
-      // 반투명 보라색 채우기
       ctx.fillStyle = "rgba(167, 139, 250, 0.18)"; 
       ctx.fill();
 
@@ -196,9 +259,9 @@ export default function MelodyEditorPage() {
       ctx.lineJoin = "miter";
       ctx.stroke();
 
-      // 3️⃣ 드래그 핸들 (선택사항, 편집을 위해 작은 점 표시)
+      // 3️⃣ 드래그 핸들
       sortedNotes.forEach((note) => {
-        const originalIndex = notes.indexOf(note); // 원본 배열 기준 인덱스 찾기
+        const originalIndex = notes.indexOf(note);
         const x = (note.start_time_seconds / MAX_TIME) * width;
         const y = height - ((note.pitch - MIN_PITCH) / (MAX_PITCH - MIN_PITCH)) * height;
         const isDragging = draggingIndex === originalIndex;
@@ -216,7 +279,7 @@ export default function MelodyEditorPage() {
       ctx.beginPath();
       ctx.moveTo(playheadX, 0);
       ctx.lineTo(playheadX, height);
-      ctx.strokeStyle = "#ef4444"; // 밝은 빨간색
+      ctx.strokeStyle = "#ef4444";
       ctx.lineWidth = 2.5;
       ctx.stroke();
     }
@@ -242,7 +305,6 @@ export default function MelodyEditorPage() {
     const width = canvas.getBoundingClientRect().width;
     const height = canvas.getBoundingClientRect().height;
 
-    // 클릭한 위치 근처의 노트 찾기
     const clickedIndex = notes.findIndex((note) => {
       const noteX = (note.start_time_seconds / MAX_TIME) * width;
       const noteY = height - ((note.pitch - MIN_PITCH) / (MAX_PITCH - MIN_PITCH)) * height;
@@ -288,6 +350,35 @@ export default function MelodyEditorPage() {
   };
 
   const handleMouseUp = () => {
+    // 🎵 드래그 종료 시 편집한 피치를 짧게 미리듣기
+    if (draggingIndex !== null) {
+      const note = notes[draggingIndex];
+      
+      if (!audioCtxRef.current) {
+        // TS 에러(no-explicit-any) 해결: unknown을 거쳐서 타입 단언
+        const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        audioCtxRef.current = new AudioContextClass();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === "suspended") ctx.resume();
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      
+      osc.type = "sine";
+      osc.frequency.value = midiToFreq(note.pitch);
+      
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.3);
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+    }
+
     setDraggingIndex(null);
   };
 
@@ -297,12 +388,11 @@ export default function MelodyEditorPage() {
 
     setIsSaving(true);
     try {
-      // 주소 및 Body 페이로드에 스토어의 hummingId를 동적 매핑
       const response = await fetch(`/api/v1/hummings/${hummingId}/vectors`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${useAuthStore.getState().accessToken}` // 토큰 교체
+          "Authorization": `Bearer ${useAuthStore.getState().accessToken}`
         },
         body: JSON.stringify({
           humming_id: hummingId,
@@ -311,7 +401,7 @@ export default function MelodyEditorPage() {
       });
 
       if (response.ok) {
-        navigate("/concept"); // 저장 완료 후 다음 단계인 컨셉 설정 페이지로 이동
+        navigate("/concept");
       } else {
         const errorData = await response.json().catch(() => ({}));
         console.error("저장 실패:", response.status, errorData);
