@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Stepper from "../components/Stepper";
 import { useNavigate } from "react-router-dom";
 import { useHummingStore } from "../store/useHummingStore"; // ◀ 경로는 실제 프로젝트 구조에 맞게 조정
@@ -10,12 +10,14 @@ import {
   audioBufferDurationSec,
   audioBufferToWav,
   audioBufferToBars,
+  MAX_HUMMING_SECONDS,
+  trimAudioBuffer,
 } from "../utils/audioUtils"; // ◀ 경로는 실제 프로젝트 구조에 맞게 조정
 
 // ── 타입 ──────────────────────────────────────────────────────
 type RecordingVersion = {
   id: number;
-  bars: number[]; // 전체 파형 (80개 bar, 시각화용)
+  bars: number[]; // 실제 오디오의 구간별 진폭
   durationSec: number; // 실제 녹음 초
   label: string; // "원본" | "재녹음 1" | "재녹음 2" ...
   blob: Blob; // ◀ 실제 녹음된 오디오 (webm)
@@ -26,10 +28,6 @@ type RecordingVersion = {
 type RecordState = "idle" | "recording" | "patching" | "done";
 
 // ── 헬퍼 ──────────────────────────────────────────────────────
-function makeWave(count = 80): number[] {
-  return Array.from({ length: count }, () => 15 + Math.random() * 85);
-}
-
 function fmtSec(s: number) {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
@@ -87,7 +85,7 @@ function Waveform({
   return (
     <div
       ref={containerRef}
-      className="relative flex items-center gap-0.5 overflow-hidden rounded-lg select-none"
+      className="relative flex items-center overflow-hidden rounded-lg select-none"
       style={{ height, cursor: onSelect ? "crosshair" : "default", flex: 1 }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -108,10 +106,11 @@ function Waveform({
         return (
           <div
             key={i}
-            className="rounded-sm shrink-0 transition-all duration-75"
+            className="rounded-sm"
             style={{
-              width: "3px",
-              height: `${(h / 100) * height}px`,
+              flex: "1 1 0",
+              minWidth: 0,
+              height: `${Math.max(1, (h / 100) * height)}px`,
               background: inPatch ? "#f472b6" : inSel ? "#e879f9" : accent,
               opacity: inPatch || inSel ? 1 : 0.75,
             }}
@@ -140,8 +139,24 @@ export default function CreateMusic() {
 
   const [recordState, setRecordState] = useState<RecordState>("idle");
   const [elapsed, setElapsed] = useState(0);
-  const [liveBars, setLiveBars] = useState<number[]>(Array(80).fill(5));
+  const [recordingLimitNotice, setRecordingLimitNotice] = useState<
+    "full" | "patch" | null
+  >(null);
+  const recordingLimitDialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    if (recordingLimitNotice && !recordingLimitDialogRef.current?.open) {
+      recordingLimitDialogRef.current?.showModal();
+    }
+  }, [recordingLimitNotice]);
+  const [liveBars, setLiveBars] = useState<number[]>(Array(256).fill(0));
+  const liveContextRef = useRef<AudioContext | null>(null);
+  const animationRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const deadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordingBusyRef = useRef(false);
+  const [isRecordingBusy, setIsRecordingBusy] = useState(false);
+  const patchSelectionRef = useRef<[number, number] | null>(null);
 
   const [versions, setVersions] = useState<RecordingVersion[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -173,14 +188,76 @@ export default function CreateMusic() {
   const patchStreamRef = useRef<MediaStream | null>(null);
   const [isPatchProcessing, setIsPatchProcessing] = useState(false);
 
+  function stopLiveWaveform() {
+    if (animationRef.current !== null)
+      cancelAnimationFrame(animationRef.current);
+    animationRef.current = null;
+    const context = liveContextRef.current;
+    liveContextRef.current = null;
+    if (context && context.state !== "closed") void context.close();
+  }
+
+  async function startLiveWaveform(stream: MediaStream) {
+    stopLiveWaveform();
+    const context = new AudioContext();
+    liveContextRef.current = context;
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 2048;
+    context.createMediaStreamSource(stream).connect(analyser);
+    await context.resume();
+    if (liveContextRef.current !== context) return;
+    const samples = new Float32Array(analyser.fftSize);
+    const draw = () => {
+      analyser.getFloatTimeDomainData(samples);
+      const bars = Array.from({ length: 256 }, (_, i) => {
+        let peak = 0;
+        for (let j = i * 8; j < (i + 1) * 8; j++) {
+          peak = Math.max(peak, Math.abs(samples[j]));
+        }
+        return Math.min(100, peak * 100);
+      });
+      setLiveBars(bars);
+      animationRef.current = requestAnimationFrame(draw);
+    };
+    draw();
+  }
+
+  useEffect(() => {
+    const urls = objectUrlsRef.current;
+    return () => {
+      stopLiveWaveform();
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (patchTimerRef.current) clearInterval(patchTimerRef.current);
+      if (deadlineRef.current) clearTimeout(deadlineRef.current);
+      for (const recorder of [
+        mediaRecorderRef.current,
+        patchRecorderRef.current,
+      ]) {
+        if (recorder) {
+          recorder.onstop = null;
+          recorder.ondataavailable = null;
+          if (recorder.state !== "inactive") recorder.stop();
+        }
+      }
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      patchStreamRef.current?.getTracks().forEach((track) => track.stop());
+      audioElRef.current?.pause();
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
+
   // ── 전체 녹음 시작 ───────────────────────────────────────────
   async function startRecording() {
+    if (recordingBusyRef.current) return;
+    recordingBusyRef.current = true;
+    setIsRecordingBusy(true);
     setUploadError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
       streamRef.current = stream;
+      await startLiveWaveform(stream);
 
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
@@ -195,15 +272,24 @@ export default function CreateMusic() {
       if (timerRef.current) clearInterval(timerRef.current);
       setRecordState("recording");
       setElapsed(0);
-      setLiveBars(Array(80).fill(5));
-      let sec = 0;
+      const startedAt = performance.now();
+      deadlineRef.current = setTimeout(
+        () => stopRecording(true),
+        MAX_HUMMING_SECONDS * 1000,
+      );
       timerRef.current = setInterval(() => {
-        sec++;
+        const sec = Math.min(
+          MAX_HUMMING_SECONDS,
+          Math.floor((performance.now() - startedAt) / 1000),
+        );
         setElapsed(sec);
-        setLiveBars(makeWave(80)); // 실시간 파형은 시각 효과용 (실제 진폭 분석 아님)
-        if (sec >= 60) stopRecording(sec);
-      }, 1000);
+        if (sec >= MAX_HUMMING_SECONDS) stopRecording(true);
+      }, 100);
     } catch (err) {
+      recordingBusyRef.current = false;
+      setIsRecordingBusy(false);
+      stopLiveWaveform();
+      streamRef.current?.getTracks().forEach((track) => track.stop());
       console.error("마이크 접근 실패:", err);
       setUploadError(
         "마이크 접근 권한이 필요합니다. 브라우저 설정을 확인해주세요.",
@@ -212,28 +298,46 @@ export default function CreateMusic() {
   }
 
   // ── 전체 녹음 종료 ───────────────────────────────────────────
-  function stopRecording(finalSec?: number) {
+  function stopRecording(reachedLimit = false) {
     if (timerRef.current) clearInterval(timerRef.current);
+    if (deadlineRef.current) clearTimeout(deadlineRef.current);
+    stopLiveWaveform();
 
     const mediaRecorder = mediaRecorderRef.current;
-    if (!mediaRecorder) return;
-
-    const dur = finalSec ?? elapsed;
+    if (!mediaRecorder || mediaRecorder.state === "inactive") return;
 
     mediaRecorder.onstop = async () => {
-      const webmBlob = new Blob(recordedChunksRef.current, {
-        type: "audio/webm",
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      let webmBlob = new Blob(recordedChunksRef.current, {
+        type: mediaRecorder.mimeType,
       });
 
-      // 실제 녹음된 오디오의 진폭을 분석해 파형을 그림 (실패 시 임의 파형으로 폴백)
+      // 분석 실패 시 가짜 파형을 표시하지 않는다.
       let bars: number[];
+      let dur: number;
       try {
-        const audioBuffer = await blobToAudioBuffer(webmBlob);
-        bars = audioBufferToBars(audioBuffer, 80);
+        const decoded = await blobToAudioBuffer(webmBlob);
+        const audioBuffer = trimAudioBuffer(decoded, MAX_HUMMING_SECONDS);
+        if (audioBuffer !== decoded) {
+          webmBlob = new Blob([audioBufferToWav(audioBuffer)], {
+            type: "audio/wav",
+          });
+        }
+        bars = audioBufferToBars(audioBuffer);
+        dur = audioBuffer.duration;
       } catch (err) {
-        console.error("파형 분석 실패, 임의 파형으로 대체:", err);
-        bars = makeWave(80);
+        console.error("파형 분석 실패:", err);
+        setUploadError(
+          "녹음 길이를 확인하지 못해 저장하지 않았습니다. 다시 녹음해주세요.",
+        );
+        setRecordState(versions.length ? "done" : "idle");
+        return;
+      } finally {
+        recordingBusyRef.current = false;
+        setIsRecordingBusy(false);
       }
+      setElapsed(Math.floor(dur));
 
       const newVer: RecordingVersion = {
         id: Date.now(),
@@ -247,10 +351,7 @@ export default function CreateMusic() {
       setRecordState("done");
       setSelection(null);
       setPatchTarget(null);
-
-      // 마이크 스트림 정리
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
+      if (reachedLimit) setRecordingLimitNotice("full");
     };
 
     mediaRecorder.stop();
@@ -266,7 +367,20 @@ export default function CreateMusic() {
 
   // ── 구간 재녹음 시작: 실제 마이크 녹음 시작 ──────────────────
   async function startPatchRecord(versionId: number) {
+    if (recordingBusyRef.current) return;
     if (!selection || selection[1] - selection[0] < 0.02) return;
+    const base = versions.find((version) => version.id === versionId);
+    if (!base) return;
+    const availableSeconds =
+      MAX_HUMMING_SECONDS -
+      base.durationSec * (1 - selection[1] + selection[0]);
+    if (availableSeconds <= 0) {
+      setUploadError("허밍은 최대 30초까지 저장할 수 있습니다.");
+      return;
+    }
+    patchSelectionRef.current = [...selection];
+    recordingBusyRef.current = true;
+    setIsRecordingBusy(true);
 
     setUploadError(null);
     try {
@@ -274,6 +388,7 @@ export default function CreateMusic() {
         audio: true,
       });
       patchStreamRef.current = stream;
+      await startLiveWaveform(stream);
 
       const recorder = new MediaRecorder(stream);
       patchRecorderRef.current = recorder;
@@ -288,12 +403,24 @@ export default function CreateMusic() {
       setPatchTarget(versionId);
       setPatchRecording(true);
       setPatchElapsed(0);
-      let sec = 0;
+      const startedAt = performance.now();
+      deadlineRef.current = setTimeout(
+        () => stopPatchRecord(versionId, true),
+        availableSeconds * 1000,
+      );
       patchTimerRef.current = setInterval(() => {
-        sec++;
+        const sec = Math.min(
+          availableSeconds,
+          (performance.now() - startedAt) / 1000,
+        );
         setPatchElapsed(sec);
-      }, 1000);
+        if (sec >= availableSeconds) stopPatchRecord(versionId, true);
+      }, 100);
     } catch (err) {
+      recordingBusyRef.current = false;
+      setIsRecordingBusy(false);
+      stopLiveWaveform();
+      patchStreamRef.current?.getTracks().forEach((track) => track.stop());
       console.error("마이크 접근 실패:", err);
       setUploadError(
         "마이크 접근 권한이 필요합니다. 브라우저 설정을 확인해주세요.",
@@ -302,12 +429,15 @@ export default function CreateMusic() {
   }
 
   // ── 구간 재녹음 종료: 새 녹음을 원본의 선택 구간에 실제로 합성 ──
-  function stopPatchRecord(versionId: number) {
+  function stopPatchRecord(versionId: number, reachedLimit = false) {
+    if (deadlineRef.current) clearTimeout(deadlineRef.current);
+    stopLiveWaveform();
     if (patchTimerRef.current) clearInterval(patchTimerRef.current);
     setPatchRecording(false);
 
     const recorder = patchRecorderRef.current;
-    if (!recorder || !selection) {
+    const selection = patchSelectionRef.current;
+    if (!recorder || recorder.state === "inactive" || !selection) {
       patchStreamRef.current?.getTracks().forEach((t) => t.stop());
       return;
     }
@@ -317,7 +447,7 @@ export default function CreateMusic() {
       patchStreamRef.current = null;
 
       const patchBlob = new Blob(patchChunksRef.current, {
-        type: "audio/webm",
+        type: recorder.mimeType,
       });
 
       setIsPatchProcessing(true);
@@ -328,10 +458,19 @@ export default function CreateMusic() {
         if (!base) return;
 
         // 원본 오디오와 새로 녹음한 패치 오디오를 둘 다 디코딩
-        const [baseBuffer, patchBuffer] = await Promise.all([
+        const [baseBuffer, decodedPatch] = await Promise.all([
           blobToAudioBuffer(base.blob),
           blobToAudioBuffer(patchBlob),
         ]);
+        const retainedSamples =
+          baseBuffer.length -
+          (Math.floor(selection[1] * baseBuffer.length) -
+            Math.floor(selection[0] * baseBuffer.length));
+        const availableSeconds =
+          (Math.floor(MAX_HUMMING_SECONDS * baseBuffer.sampleRate) -
+            retainedSamples) /
+          baseBuffer.sampleRate;
+        const patchBuffer = trimAudioBuffer(decodedPatch, availableSeconds);
 
         // 선택 구간([selection[0], selection[1]])을 새 녹음으로 실제 교체
         const mergedBuffer = replaceAudioSegment(
@@ -345,10 +484,11 @@ export default function CreateMusic() {
           type: "audio/wav",
         });
         const newDurationSec = audioBufferDurationSec(mergedBuffer);
+        if (newDurationSec > MAX_HUMMING_SECONDS)
+          throw new Error("허밍 길이 초과");
 
-        // 합성된 실제 오디오에서 파형 추출 (patchStart~patchEnd 표시는 비율 기준이라
-        // 길이가 바뀌어도 동일한 selection 비율을 그대로 사용)
-        const newBars = audioBufferToBars(mergedBuffer, 80);
+        const newBars = audioBufferToBars(mergedBuffer);
+        const patchStartSec = selection[0] * baseBuffer.duration;
 
         const newVer: RecordingVersion = {
           id: Date.now(),
@@ -356,16 +496,19 @@ export default function CreateMusic() {
           durationSec: newDurationSec,
           label: `재녹음 ${versions.length}`,
           blob: mergedWavBlob,
-          patchStart: selection[0],
-          patchEnd: selection[1],
+          patchStart: patchStartSec / newDurationSec,
+          patchEnd: (patchStartSec + patchBuffer.duration) / newDurationSec,
         };
 
         setVersions((prev) => [...prev, newVer]);
         setSelectedId(newVer.id);
+        if (reachedLimit) setRecordingLimitNotice("patch");
       } catch (err) {
         console.error("구간 재녹음 합성 실패:", err);
         setUploadError("구간 재녹음을 합치는 중 오류가 발생했습니다.");
       } finally {
+        recordingBusyRef.current = false;
+        setIsRecordingBusy(false);
         setIsPatchProcessing(false);
         setSelection(null);
         setPatchTarget(null);
@@ -400,6 +543,7 @@ export default function CreateMusic() {
 
   // ── API 제출: presigned URL 발급 → S3 업로드 → DB 저장 ────────
   async function handleNext() {
+    if (recordingBusyRef.current || isUploading) return;
     if (!selectedId) return;
     const ver = versions.find((v) => v.id === selectedId);
     if (!ver) return;
@@ -408,6 +552,16 @@ export default function CreateMusic() {
     setUploadError(null);
 
     try {
+      const audio = await blobToAudioBuffer(ver.blob);
+      if (
+        !Number.isFinite(audio.duration) ||
+        audio.duration <= 0 ||
+        audio.duration > MAX_HUMMING_SECONDS
+      ) {
+        throw new Error(
+          "허밍은 최대 30초까지 업로드할 수 있습니다. 다시 녹음해주세요.",
+        );
+      }
       const accessToken = useAuthStore.getState().accessToken;
       if (!accessToken) {
         throw new Error("로그인이 필요합니다.");
@@ -525,8 +679,8 @@ export default function CreateMusic() {
         <div>
           <h1 className=" text-2xl font-bold text-white mb-2">허밍 녹음</h1>
           <p className="text-sm text-gray-500">
-            떠오르는 음을 마이크에 허밍으로 녹음해보세요. 최대 60초까지 녹음할
-            수 있습니다.
+            떠오르는 음을 마이크에 허밍으로 녹음해보세요. 최대 30초까지 녹음할
+            수 있으며, 30초가 되면 자동으로 종료됩니다.
           </p>
         </div>
       </div>
@@ -542,6 +696,12 @@ export default function CreateMusic() {
           {/* 마이크 버튼 */}
           <button
             onClick={handleMicClick}
+            disabled={
+              (isRecordingBusy && recordState !== "recording") ||
+              patchRecording ||
+              isPatchProcessing ||
+              isUploading
+            }
             className="relative flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95"
             style={{
               width: "112px",
@@ -646,7 +806,7 @@ export default function CreateMusic() {
               className="text-xs mt-0.5"
               style={{ color: "rgba(255,255,255,0.3)" }}
             >
-              3초 이상 조용한 환경에서 일정한 음정으로 녹음해주세요!
+              3초 이상 조용한 환경에서 일정한 음정으로 녹음해주세요!(최대 30초)
             </p>
           </div>
 
@@ -663,7 +823,7 @@ export default function CreateMusic() {
                 className="text-xs"
                 style={{ color: "rgba(255,255,255,0.3)" }}
               >
-                SNR &gt; 10dB
+                마이크 입력
               </span>
             </div>
             <div
@@ -676,10 +836,12 @@ export default function CreateMusic() {
             >
               <Waveform
                 bars={
-                  recordState === "recording" ? liveBars : Array(80).fill(4)
+                  recordState === "recording" || patchRecording
+                    ? liveBars
+                    : Array(256).fill(0)
                 }
                 accent={
-                  recordState === "recording"
+                  recordState === "recording" || patchRecording
                     ? "#a855f7"
                     : "rgba(139,92,246,0.25)"
                 }
@@ -926,7 +1088,7 @@ export default function CreateMusic() {
         {selectedVer && (
           <button
             onClick={handleNext}
-            disabled={isUploading}
+            disabled={isUploading || isRecordingBusy}
             className="w-full py-3.5 rounded-xl font-bold text-sm hover:scale-[1.01] active:scale-95
             bg-[#8B5CF6] hover:bg-[#7C3AED] text-white shadow-lg shadow-[#8B5CF6]/30 transition-all duration-200
             disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 mt-4"
@@ -944,6 +1106,38 @@ export default function CreateMusic() {
           </button>
         )}
       </div>
+
+      <dialog
+        ref={recordingLimitDialogRef}
+        aria-labelledby="recording-limit-title"
+        aria-describedby="recording-limit-description"
+        onClose={() => setRecordingLimitNotice(null)}
+        className="fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-gray-800 bg-[#15171C] p-6 text-gray-200 shadow-2xl backdrop:bg-black/70 backdrop:backdrop-blur-sm sm:p-8"
+      >
+        <h2 id="recording-limit-title" className="text-lg font-bold text-white">
+          {recordingLimitNotice === "patch"
+            ? "재녹음이 완료되었어요"
+            : "30초 녹음이 완료되었어요"}
+        </h2>
+        <p
+          id="recording-limit-description"
+          className="mt-3 text-sm leading-7 text-gray-400"
+        >
+          {recordingLimitNotice === "patch"
+            ? "30초를 넘지 않도록 재녹음이 자동으로 종료되었습니다."
+            : "녹음시간이 30초가 넘어 녹음이 자동으로 종료되었습니다."}
+          <br />
+          녹음한 내용을 들어보고 다음 단계로 진행해주세요.
+        </p>
+        <form method="dialog" className="mt-6">
+          <button
+            autoFocus
+            className="w-full rounded-xl bg-[#8B5CF6] py-3 text-sm font-bold text-white transition-colors hover:bg-[#7C3AED] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-purple-400"
+          >
+            확인
+          </button>
+        </form>
+      </dialog>
 
       <style>{`
         @keyframes micPulse {

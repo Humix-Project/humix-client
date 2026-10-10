@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import Stepper from '../components/Stepper';
-import { useConceptStore } from '../store/useConceptStore';
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import Stepper from "../components/Stepper";
+import { useConceptStore } from "../store/useConceptStore";
 
 // 아이콘은 lucide-react 대신 텍스트/이모지를 사용하거나,
 // 또는 SVG를 직접 임포트해서 사용하는 방식으로 대체합니다.
@@ -11,12 +11,31 @@ const IconJazz = () => <span>🎷</span>;
 const IconClapperboard = () => <span>🎬</span>;
 
 const genres = [
-  { id: "kpop", name: "K-POP", icon: IconMusic, description: "밝고 중독적인 멜로디" },
-  { id: "classical", name: "Classical", icon: IconViolin, description: "화성학-구조적 완성도" },
-  { id: "jazz", name: "Jazz", icon: IconJazz, description: "복잡한 화음-즉흥 연주" }, 
-  { id: "cinematic", name: "Cinematic", icon: IconClapperboard, description: "웅장하고 감성적인 OST" },
+  {
+    id: "kpop",
+    name: "K-POP",
+    icon: IconMusic,
+    description: "밝고 중독적인 멜로디",
+  },
+  {
+    id: "classical",
+    name: "Classical",
+    icon: IconViolin,
+    description: "화성학-구조적 완성도",
+  },
+  {
+    id: "jazz",
+    name: "Jazz",
+    icon: IconJazz,
+    description: "복잡한 화음-즉흥 연주",
+  },
+  {
+    id: "cinematic",
+    name: "Cinematic",
+    icon: IconClapperboard,
+    description: "웅장하고 감성적인 OST",
+  },
 ];
-
 
 const moods = [
   { id: "intense", name: "강렬한", emoji: "⚡️" },
@@ -29,7 +48,7 @@ const moods = [
   { id: "sentimental", name: "감성적인", emoji: "💌" },
   { id: "sad", name: "슬픈", emoji: "💧" },
   { id: "melancholic", name: "쓸쓸한", emoji: "🍂" },
-  //오타 수정 
+  //오타 수정
   { id: "nostalgic", name: "그리운", emoji: "🕰️" },
   { id: "dreamy", name: "몽환적인", emoji: "🌸" },
   { id: "exciting", name: "신나는", emoji: "😆" },
@@ -43,25 +62,27 @@ const moods = [
 ];
 
 // 타입 정의
-type GenreId = typeof genres[number]['id'];
-type MoodId = typeof moods[number]['id'];
+type GenreId = (typeof genres)[number]["id"];
+type MoodId = (typeof moods)[number]["id"];
 
 export default function Concept() {
   const navigate = useNavigate();
-  
+
   //스토어에 정의된 정확한 변수명(selectedGenre, selectedMoods)으로 꺼내옵니다.
   const savedGenre = useConceptStore((state) => state.selectedGenre);
   const savedMoods = useConceptStore((state) => state.selectedMoods);
   const setConcept = useConceptStore((state) => state.setConcept);
+  const musicDirection = useConceptStore((state) => state.musicDirection);
+  const setMusicDirection = useConceptStore((state) => state.setMusicDirection);
 
-  // useState의 초기값을 스토어 값으로 설정합니다. 
+  // useState의 초기값을 스토어 값으로 설정합니다.
   const [selectedGenre, setSelectedGenre] = useState<GenreId | null>(
-    (savedGenre as GenreId) || "kpop"
+    (savedGenre as GenreId) || "kpop",
   );
-  
+
   // 초기 선택값을 명세서에 존재하는 단일 Enum 값인 "bright"로 안전하게 설정했습니다.
   const [selectedMoods, setSelectedMoods] = useState<MoodId[]>(
-    savedMoods && savedMoods.length > 0 ? (savedMoods as MoodId[]) : ["bright"]
+    savedMoods && savedMoods.length > 0 ? (savedMoods as MoodId[]) : ["bright"],
   );
 
   // 분위기 선택 핸들러 (무조건 1개만 선택되도록 배열을 덮어씌움)
@@ -73,38 +94,37 @@ export default function Concept() {
   const handleNextStep = () => {
     // Zustand 전역 상태(Store)에 현재 선택한 장르와 분위기를 저장
     setConcept(selectedGenre, selectedMoods);
-    
+
     // 다음 단계인 참고 음악 선택 페이지(Reference.tsx)의 라우터 경로로 이동
-    navigate('/reference'); 
+    navigate("/reference");
   };
 
   return (
     <div className="min-h-screen bg-[#0B0C10] text-gray-200 p-8 font-sans">
       <div className="max-w-6xl mx-auto">
-
         {/* Stepper 적용 (현재 단계: 3. 컨셉) */}
         <div className="w-full bg-[#1A1D24] rounded-lg p-5 border border-gray-800 shadow-sm flex items-center justify-center">
           <Stepper currentStep={3} />
         </div>
         <br></br>
-        
+
         {/* 상단 타이틀 영역 */}
         <div className="mb-10">
           <h1 className="text-2xl font-bold text-white mb-2">컨셉 설정</h1>
-          <p className="text-sm text-gray-500">
-            장르와 분위기를 선택하세요
-          </p>
+          <p className="text-sm text-gray-500">장르와 분위기를 선택하세요</p>
         </div>
 
         {/* 메인 콘텐츠 영역 */}
         <div className="bg-[#15171C] border border-gray-800 rounded-xl p-5 md:p-8 shadow-xl flex flex-col gap-12">
-          
           {/* 장르 선택 섹션 */}
           <div>
             <div className="mb-5">
-                <h2 className="text-lg font-semibold text-white">
-                장르 선택 <span className="text-purple-400 font-bold ml-1">▪︎ 필수 (1개)</span>
-                </h2>
+              <h2 className="text-lg font-semibold text-white">
+                장르 선택{" "}
+                <span className="text-purple-400 font-bold ml-1">
+                  ▪︎ 필수 (1개)
+                </span>
+              </h2>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {genres.map((genre) => {
@@ -115,17 +135,23 @@ export default function Concept() {
                     key={genre.id}
                     onClick={() => setSelectedGenre(genre.id)}
                     className={`flex flex-col items-center justify-center p-6 rounded-lg border-2 transition-all duration-200 aspect-square
-                      ${ isSelected 
-                        ? "bg-purple-500/20 border-purple-500 ring-2 ring-purple-500" 
-                        : "bg-zinc-800/50 border-transparent hover:border-purple-500"
-                      }`
-                    }
+                      ${
+                        isSelected
+                          ? "bg-purple-500/20 border-purple-500 ring-2 ring-purple-500"
+                          : "bg-zinc-800/50 border-transparent hover:border-purple-500"
+                      }`}
                   >
-                    <div className={`mb-3 ${isSelected ? 'text-purple-400' : 'text-zinc-400'}`}>
-                        <Icon />
+                    <div
+                      className={`mb-3 ${isSelected ? "text-purple-400" : "text-zinc-400"}`}
+                    >
+                      <Icon />
                     </div>
-                    <span className="font-bold text-base text-white mb-1">{genre.name}</span>
-                    <span className="text-xs text-gray-400 text-center">{genre.description}</span>
+                    <span className="font-bold text-base text-white mb-1">
+                      {genre.name}
+                    </span>
+                    <span className="text-xs text-gray-400 text-center">
+                      {genre.description}
+                    </span>
                   </button>
                 );
               })}
@@ -135,9 +161,12 @@ export default function Concept() {
           {/* 분위기 선택 섹션 */}
           <div>
             <div className="mb-5">
-                <h2 className="text-lg font-semibold text-white">
-                분위기 선택 <span className="text-purple-400 font-bold ml-1">▪︎ 필수 (1개)</span>
-                </h2>
+              <h2 className="text-lg font-semibold text-white">
+                분위기 선택{" "}
+                <span className="text-purple-400 font-bold ml-1">
+                  ▪︎ 필수 (1개)
+                </span>
+              </h2>
             </div>
             <div className="flex flex-wrap gap-3">
               {moods.map((mood) => {
@@ -147,11 +176,11 @@ export default function Concept() {
                     key={mood.id}
                     onClick={() => handleMoodToggle(mood.id)}
                     className={`px-4 py-2 rounded-full border-2 text-sm font-medium transition-colors duration-200 flex items-center gap-2
-                    ${ isSelected 
+                    ${
+                      isSelected
                         ? "bg-purple-500/20 border-purple-500 text-purple-300"
                         : "bg-zinc-800 border-transparent hover:border-purple-500"
-                    }`
-                   }
+                    }`}
                   >
                     <span>{mood.emoji}</span>
                     <span>{mood.name}</span>
@@ -161,17 +190,51 @@ export default function Concept() {
             </div>
           </div>
         </div>
-        
+
+        <section
+          aria-labelledby="music-direction-title"
+          className="mt-6 rounded-xl border border-gray-800 bg-[#15171C] p-5 shadow-xl md:p-8"
+        >
+          <div className="mb-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2
+                id="music-direction-title"
+                className="text-lg font-semibold text-white"
+              >
+                <label htmlFor="music-direction">
+                  음악 방향성 &amp; 디테일 입력
+                </label>
+              </h2>
+              <span className="text-lg font-bold text-gray-400">▪︎ 선택</span>
+            </div>
+            <p
+              id="music-direction-description"
+              className="mt-2 text-sm leading-relaxed text-gray-400"
+            >
+              원하는 악기 구성, 분위기, 레퍼런스 스타일 등을 자유롭게
+              적어주세요.
+            </p>
+          </div>
+          <textarea
+            id="music-direction"
+            value={musicDirection}
+            onChange={(event) => setMusicDirection(event.target.value)}
+            aria-describedby="music-direction-description"
+            placeholder="예: 비 오는 밤 창밖을 보며 듣기 좋은 잔잔한 피아노와 로파이 비트, 감성적인 첼로 선율을 더해줘"
+            rows={4}
+            className="block min-h-36 w-full resize-y rounded-xl border border-[#8B5CF6]/60 bg-[#8B5CF6]/10 px-4 py-4 text-sm leading-7 text-gray-200 outline-none transition-colors placeholder:text-gray-500 hover:border-[#8B5CF6]/80 focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/20 md:px-5"
+          />
+        </section>
+
         {/* 하단 네비게이션 버튼 */}
         <div className="mt-8 flex justify-end">
-            <button 
-              onClick={handleNextStep}
-              className="px-8 py-3 rounded-xl text-base font-bold bg-[#8B5CF6] text-white hover:bg-[#7c3aed] transition-all duration-200 shadow-[0_0_20px_rgba(139,92,246,0.4)] hover:shadow-[0_0_30px_rgba(139,92,246,0.6)]"
-            >
-              다음 (참고 음악 선택) →
-            </button>
+          <button
+            onClick={handleNextStep}
+            className="px-8 py-3 rounded-xl text-base font-bold bg-[#8B5CF6] text-white hover:bg-[#7c3aed] transition-all duration-200 shadow-[0_0_20px_rgba(139,92,246,0.4)] hover:shadow-[0_0_30px_rgba(139,92,246,0.6)]"
+          >
+            다음 (곡 생성) →
+          </button>
         </div>
-
       </div>
     </div>
   );
