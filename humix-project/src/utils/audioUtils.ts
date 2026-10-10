@@ -91,39 +91,52 @@ export function audioBufferDurationSec(buffer: AudioBuffer): number {
   return buffer.length / buffer.sampleRate;
 }
 
+export const MAX_HUMMING_SECONDS = 30;
+
+// 타이머 지연이나 인코더 패딩이 있어도 저장되는 실제 샘플 수를 제한한다.
+export function trimAudioBuffer(buffer: AudioBuffer, maxSeconds: number): AudioBuffer {
+  const length = Math.floor(maxSeconds * buffer.sampleRate);
+  if (length < 1) throw new Error("녹음 가능한 시간이 없습니다.");
+  if (buffer.length <= length) return buffer;
+  const trimmed = new AudioBuffer({
+    length,
+    numberOfChannels: buffer.numberOfChannels,
+    sampleRate: buffer.sampleRate,
+  });
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+    trimmed.copyToChannel(buffer.getChannelData(channel).subarray(0, length), channel);
+  }
+  return trimmed;
+}
+
 // ── 실제 파형 추출 ───────────────────────────────────────────
 // AudioBuffer를 barCount개 구간으로 나눠, 각 구간의 피크 진폭(0~100)을 뽑는다.
 // Waveform 컴포넌트가 기대하는 bars 배열(0~100 범위) 포맷과 동일하게 반환.
 export function audioBufferToBars(
   buffer: AudioBuffer,
-  barCount = 80,
+  barCount = 256,
 ): number[] {
-  // 채널이 여러 개면 평균내서 모노로 합침
-  const numChannels = buffer.numberOfChannels;
+  if (!Number.isInteger(barCount) || barCount < 1) return [];
   const length = buffer.length;
-  const merged = new Float32Array(length);
-  for (let ch = 0; ch < numChannels; ch++) {
-    const data = buffer.getChannelData(ch);
-    for (let i = 0; i < length; i++) {
-      merged[i] += data[i] / numChannels;
-    }
-  }
-
-  const samplesPerBar = Math.max(1, Math.floor(length / barCount));
+  const channels = Array.from({ length: buffer.numberOfChannels }, (_, ch) =>
+    buffer.getChannelData(ch),
+  );
   const bars: number[] = [];
 
   for (let i = 0; i < barCount; i++) {
-    const start = i * samplesPerBar;
-    const end = i === barCount - 1 ? length : start + samplesPerBar;
+    const start = Math.floor((i * length) / barCount);
+    const end = Math.min(length, Math.max(start + 1, Math.floor(((i + 1) * length) / barCount)));
 
     let peak = 0;
-    for (let j = start; j < end; j++) {
-      const abs = Math.abs(merged[j]);
-      if (abs > peak) peak = abs;
+    // 채널별 절댓값을 사용해 역위상 스테레오의 상쇄를 방지한다.
+    for (const data of channels) {
+      for (let j = start; j < end; j++) {
+        peak = Math.max(peak, Math.abs(data[j]));
+      }
     }
 
-    // 0~1 범위의 진폭을 15~100 범위로 매핑 (기존 makeWave와 동일한 시각적 최소 높이 유지)
-    const scaled = Math.min(100, 15 + peak * 85);
+    // 무음은 0, 최대 진폭은 100으로 표시한다.
+    const scaled = Math.min(100, peak * 100);
     bars.push(scaled);
   }
 
