@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { audioBufferToBars, blobToAudioBuffer } from "../utils/audioUtils";
 
-export default function AudioWaveform({ src, muted = false }: { src?: string; muted?: boolean }) {
+export default function AudioWaveform({ src, muted = false, barCount = 256 }: { src?: string; muted?: boolean; barCount?: number }) {
   const [result, setResult] = useState<{ src: string; bars?: number[]; error?: boolean } | null>(null);
 
   useEffect(() => {
@@ -12,7 +12,7 @@ export default function AudioWaveform({ src, muted = false }: { src?: string; mu
         const response = await fetch(src!, { signal: controller.signal });
         if (!response.ok) throw new Error(`Audio request failed: ${response.status}`);
         const buffer = await blobToAudioBuffer(await response.blob());
-        if (!controller.signal.aborted) setResult({ src: src!, bars: audioBufferToBars(buffer) });
+        if (!controller.signal.aborted) setResult({ src: src!, bars: audioBufferToBars(buffer, barCount) });
       } catch (error) {
         if (!controller.signal.aborted) {
           console.error("파형 분석 실패:", error);
@@ -22,7 +22,7 @@ export default function AudioWaveform({ src, muted = false }: { src?: string; mu
     }
     void load();
     return () => controller.abort();
-  }, [src]);
+  }, [src, barCount]);
 
   const current = result?.src === src ? result : null;
   if (!current?.bars) {

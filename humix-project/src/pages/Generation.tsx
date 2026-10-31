@@ -25,6 +25,7 @@ import { useSearchParams } from "react-router-dom";
 import { generationRequest, validateModification, revertMessage } from "../utils/generationHistory";
 import type { SongVersion, VersionHistory } from "../utils/generationHistory";
 import Stepper from "../components/Stepper";
+import DownloadModal from "../components/DownloadModal";
 // 🔌 API 연결: EventSource는 Authorization 등 커스텀 헤더를 지정할 수 없어
 //             fetch 기반으로 헤더를 자유롭게 설정 가능한 라이브러리로 교체 (명세서 비고: "헤더 수정 불가 시 외부 라이브러리 사용" 지침 반영)
 //             설치: npm install @microsoft/fetch-event-source
@@ -101,13 +102,12 @@ interface GenerationTaskResponse {
 // 🔌 API 연결: SSE progress 이벤트 payload 타입 (API 명세서 3.4.1.11)
 interface SseProgressPayload {
   task_id: string;
-  status: "PROCESSING";
+  status: "PROCESSING" | "FAILED" | "CANCELED";
   progress: number;
 }
 
 // 🔌 API 연결: SSE complete 이벤트 payload 타입 (API 명세서 3.4.1.11)
-// 비고: 명세서 원문에는 이벤트명이 "complete"로 되어 있음 (기존 코드 주석의 "completed"와 철자가 다름).
-//       백엔드와 실제 이벤트명("complete" vs "completed") 확인 필요.
+// 성공은 complete, 실패·취소는 progress 이벤트의 status로 전달됩니다.
 interface SseCompletePayload {
   status: "COMPLETED";
   result: {
@@ -135,6 +135,7 @@ export default function Generation() {
   const [status, setStatus] = useState<GenerationStatus>(rootId ? "done" : "idle");
   const [progressMsg, setProgressMsg] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
+  const [downloadVersion, setDownloadVersion] = useState<SongVersion | null>(null);
 
   // ── 오디오 재생 ref ────────────────────────────────────────────────────────
   // 재생/정지 제어용 Audio 인스턴스를 ref로 보관 (state로 두면 불필요한 리렌더링 발생)
@@ -149,6 +150,7 @@ export default function Generation() {
   const [isHistoryLoading, setIsHistoryLoading] = useState(Boolean(rootId));
   const [isReverting, setIsReverting] = useState(false);
   const [historyError, setHistoryError] = useState("");
+  const [taskNotice, setTaskNotice] = useState("");
   const [historyRevision, setHistoryRevision] = useState(0);
   const [startSec, setStartSec] = useState("0");
   const [endSec, setEndSec] = useState("5");
@@ -228,6 +230,7 @@ export default function Generation() {
     onProgress: (data: SseProgressPayload) => void,
     onComplete: (data: SseCompletePayload) => void,
     onError: () => void,
+    onCanceled: () => void,
   ) => {
     const accessToken = getAccessToken();
     const ctrl = new AbortController();
@@ -261,14 +264,24 @@ export default function Generation() {
         }
       },
       onmessage(ev) {
-        if (ev.event.toLowerCase() === "failed" || ev.event === "error" || (ev.data && JSON.parse(ev.data).status === "FAILED")) {
+        if (finished || ctrl.signal.aborted) return;
+        if (ev.event.toLowerCase() === "failed" || ev.event === "error") {
+          fail();
+          return;
+        }
+        // connect / heartbeat는 JSON이 아닐 수도 있으므로 파싱하지 않습니다.
+        if (ev.event !== "progress" && ev.event !== "complete") return;
+        const data = JSON.parse(ev.data);
+        if (data.status === "CANCELED") {
+          finished = true;
+          onCanceled();
+          ctrl.abort();
+        } else if (data.status === "FAILED") {
           fail();
         } else if (ev.event === "progress") {
-          const data: SseProgressPayload = JSON.parse(ev.data);
-          onProgress(data);
+          onProgress(data as SseProgressPayload);
         } else if (ev.event === "complete") {
-          const data: SseCompletePayload = JSON.parse(ev.data);
-          onComplete(data);
+          onComplete(data as SseCompletePayload);
           finished = true;
           ctrl.abort();
         }
@@ -285,6 +298,7 @@ export default function Generation() {
 
   // ── AI 생성 시작 핸들러 ────────────────────────────────────────────────────
   const handleGenerate = () => {
+    setTaskNotice("");
     setStatus("generating");
     setProgressMsg("AI가 멜로디를 작곡하고 있습니다.");
 
@@ -342,6 +356,11 @@ export default function Generation() {
           () => {
             setStatus("error");
           },
+          () => {
+            setStatus("idle");
+            setProgressMsg("");
+            setTaskNotice("곡 생성이 취소되었습니다. 다시 생성할 수 있습니다.");
+          },
         );
       } catch (err) {
         console.error("[곡 생성 요청 오류]", err);
@@ -382,10 +401,9 @@ export default function Generation() {
   // ── 다운로드 핸들러 ────────────────────────────────────────────────────────
   const handleDownload = () => {
     if (!activeVersion?.audio_url) return;
-    const a = document.createElement("a");
-    a.href = activeVersion.audio_url;
-    a.download = `humix_generated_${activeVersion.generation_id}.wav`;
-    a.click();
+    audioRef.current?.pause();
+    setIsPlaying(false);
+    setDownloadVersion(activeVersion);
   };
 
   // 수정 대상은 항상 현재 히스토리의 마지막 버전입니다.
@@ -395,6 +413,7 @@ export default function Generation() {
     operationRef.current = true;
     setIsModGenerating(true);
     setHistoryError("");
+    setTaskNotice("");
     const prompt = modPrompt.trim();
     const fail = () => {
       operationRef.current = false;
@@ -422,7 +441,11 @@ export default function Generation() {
         setModPrompt("");
         setIsModGenerating(false);
         operationRef.current = false;
-      }, fail);
+      }, fail, () => {
+        operationRef.current = false;
+        setIsModGenerating(false);
+        setTaskNotice("곡 수정이 취소되었습니다. 기존 버전은 유지됩니다.");
+      });
     } catch (err) {
       operationRef.current = false;
       setIsModGenerating(false);
@@ -437,6 +460,7 @@ export default function Generation() {
     operationRef.current = true;
     setIsReverting(true);
     setHistoryError("");
+    setTaskNotice("");
     try {
       await generationRequest<{ generation_id: number; deleted_count: number }>(`/${id}/revert`, accessToken, { method: "POST" });
       // 서버 성공 이후에만 잘라냅니다. 실패/취소하면 재생과 히스토리를 유지합니다.
@@ -458,6 +482,7 @@ export default function Generation() {
   // ── 렌더링 ────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#0B0C10] text-gray-200 p-8 font-sans">
+      {downloadVersion && <DownloadModal version={downloadVersion} onClose={() => setDownloadVersion(null)} />}
       <div className="max-w-6xl mx-auto">
         {/* ── Stepper (Step 5: 생성) ── */}
         <div className="w-full bg-[#1A1D24] rounded-lg p-5 border border-gray-800 shadow-sm flex items-center justify-center">
@@ -509,6 +534,7 @@ export default function Generation() {
             </div>
           )}
           {historyError && <p role="alert" className="text-sm text-red-400">{historyError}</p>}
+          {taskNotice && <p role="status" className="text-sm text-violet-300">{taskNotice}</p>}
 
           {/* ── 생성 전(idle): AI 생성 시작 버튼 ── */}
           {status === "idle" && (
