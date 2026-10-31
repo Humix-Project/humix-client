@@ -20,7 +20,10 @@
  * ─────────────────────────────────────────────
  */
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
+import { generationRequest, validateModification, revertMessage } from "../utils/generationHistory";
+import type { SongVersion, VersionHistory } from "../utils/generationHistory";
 import Stepper from "../components/Stepper";
 // 🔌 API 연결: EventSource는 Authorization 등 커스텀 헤더를 지정할 수 없어
 //             fetch 기반으로 헤더를 자유롭게 설정 가능한 라이브러리로 교체 (명세서 비고: "헤더 수정 불가 시 외부 라이브러리 사용" 지침 반영)
@@ -79,17 +82,13 @@ type GenerationStatus = "idle" | "generating" | "done" | "error";
 
 // ── 수정 버전 타입 ────────────────────────────────────────────────────────
 // AI로 수정하기 패널에서 생성되는 각 수정 버전
-interface ModVersion {
-  id: number | string;
-  prompt: string; // 사용자가 입력한 수정 프롬프트
-  isActive: boolean; // 현재 적용 중인 버전 여부
-  audioUrl?: string;
-  durationStr?: string;
+interface ModVersion extends SongVersion {
+  isActive: boolean;
 }
 
 // 🔌 API 연결: API 응답 Envelope 공통 타입 (백엔드 실제 응답 기준 result로 통일)
 interface ApiEnvelope<T> {
-  code: number;
+  code: string;
   message: string;
   result: T; // ← data → result (백엔드 실제 응답 envelope 기준)
 }
@@ -113,7 +112,8 @@ interface SseCompletePayload {
   status: "COMPLETED";
   result: {
     task_id: string;
-    song_id: number;
+    song_id?: number;
+    generation_id?: number;
     audio_url: string;
     duration_seconds: number;
   };
@@ -129,7 +129,10 @@ function formatDuration(totalSeconds: number): string {
 
 export default function Generation() {
   // ── 상태 관리 ──────────────────────────────────────────────────────────────
-  const [status, setStatus] = useState<GenerationStatus>("idle");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rootId = Number(searchParams.get("root_generation_id")) || null;
+  const accessToken = useAuthStore((state) => state.accessToken);
+  const [status, setStatus] = useState<GenerationStatus>(rootId ? "done" : "idle");
   const [progressMsg, setProgressMsg] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
 
@@ -143,30 +146,57 @@ export default function Generation() {
   const [isModGenerating, setIsModGenerating] = useState(false); // 수정 생성 중 여부
   const [modVersions, setModVersions] = useState<ModVersion[]>([]); // 수정 버전 히스토리
 
-  // 🔌 API 연결: [API-2] SSE로 받은 audio_url 저장
-  // 비고: 현재는 modVersions 배열 안에 동일한 audioUrl이 버전별로 저장되어 화면 표시는
-  //       activeVersion.audioUrl 쪽에서 처리함. 이 state 자체는 곡 생성 완료 시점의 "최초 원본 URL"을
-  //       별도로 보관해두기 위한 용도(추후 원본 비교/복구 기능 등에 사용 예정)라 일단 set만 하고 읽지는 않음.
-  //       빌드 시 TS6133(미사용 변수) 에러 방지를 위해 void로 의도적 보관임을 명시.
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  void audioUrl;
+  const [isHistoryLoading, setIsHistoryLoading] = useState(Boolean(rootId));
+  const [isReverting, setIsReverting] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [historyRevision, setHistoryRevision] = useState(0);
+  const [startSec, setStartSec] = useState("0");
+  const [endSec, setEndSec] = useState("5");
+  const operationRef = useRef(false);
+  const streamRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(false);
 
-  // 🔌 API 연결: [API-1] 반환된 task_id 저장
-  // 비고: 현재 UI에서 직접 읽지는 않지만, 추후 "생성 취소" 기능(API 명세서 3.4.1.9,
-  //       DELETE /api/v1/generation/songs/tasks/{task_id}) 연결 시 필요해 미리 보관해둠.
-  const [taskId, setTaskId] = useState<string | null>(null);
-  void taskId;
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      streamRef.current?.abort();
+      audioRef.current?.pause();
+    };
+  }, []);
 
-  // 🔌 API 연결: complete 응답에 포함된 song_id 저장 (AI 수정 요청 시 URL 파라미터로 필요, API 명세서 3.4.1.10)
-  // 비고: AI 수정 API가 현재 비활성화(주석 처리)되어 있어 당장은 읽는 곳이 없음.
-  //       AI 수정 기능 재활성화 시 handleModSubmit 내부에서 사용됨.
-  const [songId, setSongId] = useState<number | null>(null);
-  void songId;
+  // 원본 ID는 URL에 남겨 새로고침 후에도 서버 히스토리를 복원합니다.
+  useEffect(() => {
+    if (!rootId || !accessToken) return;
+    const ctrl = new AbortController();
+    generationRequest<VersionHistory>(`/${rootId}/versions`, accessToken, { signal: ctrl.signal })
+      .then((history) => {
+        if (ctrl.signal.aborted) return;
+        if (!history.versions.length) throw new Error("완료된 버전이 없습니다.");
+        const versions = [...history.versions].sort((a, b) => a.version_no - b.version_no);
+        audioRef.current?.pause();
+        audioRef.current = null;
+        setIsPlaying(false);
+        setModVersions(versions.map((v, i) => ({ ...v, isActive: i === versions.length - 1 })));
+        setStatus("done");
+        setHistoryError("");
+        setIsHistoryLoading(false);
+        setIsModifyOpen(true);
+      })
+      .catch((err) => {
+        if (ctrl.signal.aborted) return;
+        setHistoryError(err instanceof Error ? err.message : "히스토리를 불러오지 못했습니다.");
+        setIsHistoryLoading(false);
+      });
+    return () => ctrl.abort();
+  }, [rootId, accessToken, historyRevision]);
 
   // ✅ 현재 활성화된(isActive가 true인) 버전
   const activeVersion = modVersions.find((v) => v.isActive);
-  // ✅ 현재 활성화된 버전의 인덱스
-  const activeIndex = modVersions.findIndex((v) => v.isActive);
+  const isBusy = isModGenerating || isReverting || isHistoryLoading;
+  const rangeError = activeVersion
+    ? validateModification(startSec === "" ? NaN : Number(startSec), endSec === "" ? NaN : Number(endSec), activeVersion.duration_seconds, modPrompt.trim())
+    : "수정할 곡을 불러와주세요.";
 
   // 🔌 API 연결: API Base URL
   // TODO: 실제 배포 시 .env (VITE_API_BASE_URL 등)로 분리할 것
@@ -207,6 +237,15 @@ export default function Generation() {
     const backendHost = isLocal ? "" : "https://humix.my-project.cloud";
     const url = `${backendHost}${API_BASE_URL}/generation/songs/tasks/${streamTaskId}/stream`;
 
+    streamRef.current?.abort();
+    streamRef.current = ctrl;
+    let finished = false;
+    const fail = () => {
+      if (finished || ctrl.signal.aborted) return;
+      finished = true;
+      onError();
+      ctrl.abort();
+    };
     fetchEventSource(url, {
       method: "GET",
       headers: {
@@ -216,23 +255,30 @@ export default function Generation() {
       },
       signal: ctrl.signal,
       openWhenHidden: true,
+      async onopen(response) {
+        if (!response.ok || !response.headers.get("content-type")?.includes("text/event-stream")) {
+          throw new Error("작업 진행 정보를 불러오지 못했습니다.");
+        }
+      },
       onmessage(ev) {
-        if (ev.event === "progress") {
+        if (ev.event.toLowerCase() === "failed" || ev.event === "error" || (ev.data && JSON.parse(ev.data).status === "FAILED")) {
+          fail();
+        } else if (ev.event === "progress") {
           const data: SseProgressPayload = JSON.parse(ev.data);
           onProgress(data);
         } else if (ev.event === "complete") {
           const data: SseCompletePayload = JSON.parse(ev.data);
           onComplete(data);
+          finished = true;
           ctrl.abort();
         }
       },
       onerror(err) {
-        onError();
+        fail();
         throw err;
       },
-    }).catch(() => {
-      // ctrl.abort()로 인한 정상 종료 시에도 catch가 호출될 수 있어 무시
-    });
+      onclose() { fail(); },
+    }).catch(() => { fail(); });
 
     return ctrl;
   };
@@ -270,8 +316,8 @@ export default function Generation() {
 
         // ← result로 수정 (백엔드 실제 envelope 기준)
         const json: ApiEnvelope<GenerationTaskResponse> = await res.json();
+        if (!mountedRef.current) return;
         const newTaskId = json.result.task_id;
-        setTaskId(newTaskId);
 
         // 2) [API-2] SSE 구독
         subscribeToTaskStream(
@@ -282,18 +328,16 @@ export default function Generation() {
             );
           },
           (data) => {
-            setAudioUrl(data.result.audio_url);
-            setSongId(data.result.song_id);
+            const id = data.result.generation_id ?? data.result.song_id;
+            if (!id) throw new Error("생성된 곡 ID가 없습니다.");
             setStatus("done");
-            setModVersions([
-              {
-                id: "original",
-                prompt: "최초 생성된 원본 곡입니다.",
-                isActive: true,
-                audioUrl: data.result.audio_url,
-                durationStr: formatDuration(data.result.duration_seconds),
-              },
-            ]);
+            setModVersions([{
+              generation_id: id, version_no: 1, prompt: null,
+              start_time_sec: null, end_time_sec: null, isActive: true,
+              audio_url: data.result.audio_url, duration_seconds: data.result.duration_seconds,
+            }]);
+            setIsHistoryLoading(true);
+            setSearchParams((prev) => { prev.set("root_generation_id", String(id)); return prev; }, { replace: true });
           },
           () => {
             setStatus("error");
@@ -310,14 +354,14 @@ export default function Generation() {
 
   // ── 재생/정지 핸들러 ───────────────────────────────────────────────────────
   const handlePlayToggle = () => {
-    if (!activeVersion?.audioUrl) return;
+    if (!activeVersion?.audio_url) return;
 
     // 아직 Audio 인스턴스가 없거나, 버전이 바뀌어 src가 달라진 경우 새로 생성
-    if (!audioRef.current || audioRef.current.src !== activeVersion.audioUrl) {
+    if (!audioRef.current || audioRef.current.src !== activeVersion.audio_url) {
       if (audioRef.current) {
         audioRef.current.pause();
       }
-      audioRef.current = new Audio(activeVersion.audioUrl);
+      audioRef.current = new Audio(activeVersion.audio_url);
       // 재생이 끝나면 자동으로 정지 상태로 전환
       audioRef.current.onended = () => setIsPlaying(false);
     }
@@ -337,112 +381,78 @@ export default function Generation() {
 
   // ── 다운로드 핸들러 ────────────────────────────────────────────────────────
   const handleDownload = () => {
-    if (!activeVersion?.audioUrl) return;
+    if (!activeVersion?.audio_url) return;
     const a = document.createElement("a");
-    a.href = activeVersion.audioUrl;
-    a.download = `humix_generated_${activeVersion.id}.wav`;
+    a.href = activeVersion.audio_url;
+    a.download = `humix_generated_${activeVersion.generation_id}.wav`;
     a.click();
   };
 
-  // ── AI 수정 요청 핸들러 ────────────────────────────────────────────────────
-  // 🔌 API 연결 보류: 백엔드 준비되면 아래 주석(startModification) 해제하고
-  //                 더미 시뮬레이션 블록을 제거할 것. (API 명세서 3.4.1.10)
-  const handleModSubmit = () => {
-    if (!modPrompt.trim() || isModGenerating) return;
-    const prompt = modPrompt.trim();
-    setModPrompt("");
+  // 수정 대상은 항상 현재 히스토리의 마지막 버전입니다.
+  const handleModSubmit = async () => {
+    if (operationRef.current || isBusy || !activeVersion || !accessToken || !rootId) return;
+    if (rangeError) { setHistoryError(rangeError); return; }
+    operationRef.current = true;
     setIsModGenerating(true);
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // 🔌 API 연결 (보류): 백엔드 준비되면 아래 주석을 해제하고, 바로 아래의
-    //                   [임시] 시뮬레이션 블록을 제거할 것.
-    //
-    // const startModification = async () => {
-    //   try {
-    //     if (songId === null) {
-    //       throw new Error('song_id가 없어 수정 요청을 보낼 수 없습니다.');
-    //     }
-    //
-    //     const accessToken = getAccessToken();
-    //
-    //     // 1) POST /api/v1/generation/songs/{song_id}/modifications
-    //     const res = await fetch(`${API_BASE_URL}/generation/songs/${songId}/modifications`, {
-    //       method: 'POST',
-    //       headers: {
-    //         'Content-Type': 'application/json',
-    //         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-    //       },
-    //       body: JSON.stringify({ prompt }),
-    //     });
-    //
-    //     if (!res.ok) {
-    //       throw new Error('수정 요청 실패');
-    //     }
-    //
-    //     const json: ApiEnvelope<GenerationTaskResponse> = await res.json();
-    //     const modTaskId = json.result.task_id;
-    //
-    //     // 2) SSE 구독
-    //     subscribeToTaskStream(
-    //       modTaskId,
-    //       () => {},
-    //       (data) => {
-    //         setModVersions((prev) => [
-    //           ...prev.map((v) => ({ ...v, isActive: false })),
-    //           {
-    //             id: data.result.song_id,
-    //             prompt,
-    //             isActive: true,
-    //             audioUrl: data.result.audio_url,
-    //             durationStr: formatDuration(data.result.duration_seconds),
-    //           },
-    //         ]);
-    //         setIsModGenerating(false);
-    //       },
-    //       () => {
-    //         alert('곡 수정 중 오류가 발생했어요. 다시 시도해주세요.');
-    //         setIsModGenerating(false);
-    //       }
-    //     );
-    //   } catch (err) {
-    //     console.error('[AI 수정 요청 오류]', err);
-    //     alert('곡 수정 중 오류가 발생했어요. 다시 시도해주세요.');
-    //     setIsModGenerating(false);
-    //   }
-    // };
-    //
-    // startModification();
-    // ──────────────────────────────────────────────────────────────────────────
-
-    // ── [임시] 수정 생성 시뮬레이션 (API 연결 전 UI 확인용) ──────────────────
-    setTimeout(() => {
-      const newId = Date.now();
-      setModVersions((prev) => [
-        ...prev.map((v) => ({ ...v, isActive: false })),
-        {
-          id: newId,
-          prompt,
-          isActive: true,
-          audioUrl: `https://dummy-modified-audio-${newId}.url`,
-          durationStr: "1:48",
-        },
-      ]);
+    setHistoryError("");
+    const prompt = modPrompt.trim();
+    const fail = () => {
+      operationRef.current = false;
       setIsModGenerating(false);
-    }, 3000);
-    // ── [임시] 시뮬레이션 끝 ─────────────────────────────────────────────────
+      setHistoryError("곡 수정에 실패했습니다. 기존 버전은 유지됩니다. 히스토리를 새로고침한 뒤 다시 시도해주세요.");
+    };
+    try {
+      const result = await generationRequest<GenerationTaskResponse>(`/${activeVersion.generation_id}/modifications`, accessToken, {
+        method: "POST",
+        body: JSON.stringify({ ...(prompt ? { prompt } : {}), start_time_sec: Number(startSec), end_time_sec: Number(endSec) }),
+      });
+      if (!mountedRef.current) return;
+      subscribeToTaskStream(result.task_id, () => {}, (data) => {
+        const id = data.result.generation_id ?? data.result.song_id;
+        if (!id) throw new Error("수정된 곡 ID가 없습니다.");
+        audioRef.current?.pause();
+        audioRef.current = null;
+        setIsPlaying(false);
+        setModVersions((prev) => [
+          ...prev.map((v) => ({ ...v, isActive: false })),
+          { generation_id: id, version_no: activeVersion.version_no + 1,
+            prompt: prompt || activeVersion.prompt, start_time_sec: Number(startSec), end_time_sec: Number(endSec),
+            audio_url: data.result.audio_url, duration_seconds: data.result.duration_seconds, isActive: true },
+        ]);
+        setModPrompt("");
+        setIsModGenerating(false);
+        operationRef.current = false;
+      }, fail);
+    } catch (err) {
+      operationRef.current = false;
+      setIsModGenerating(false);
+      setHistoryError(err instanceof Error ? err.message : "수정 요청에 실패했습니다.");
+    }
   };
 
-  // ── 수정 버전 적용 핸들러 ─────────────────────────────────────────────────
-  const handleSetActive = (id: number | string) => {
-    // 버전 바꿀 때 기존 오디오 정지 및 인스턴스 초기화
-    if (audioRef.current) {
-      audioRef.current.pause();
+  const handleSetActive = async (id: number) => {
+    if (operationRef.current || isBusy || !accessToken) return;
+    const message = revertMessage(modVersions, id);
+    if (!message || !window.confirm(message)) return;
+    operationRef.current = true;
+    setIsReverting(true);
+    setHistoryError("");
+    try {
+      await generationRequest<{ generation_id: number; deleted_count: number }>(`/${id}/revert`, accessToken, { method: "POST" });
+      // 서버 성공 이후에만 잘라냅니다. 실패/취소하면 재생과 히스토리를 유지합니다.
+      audioRef.current?.pause();
       audioRef.current = null;
+      setIsPlaying(false);
+      setModVersions((prev) => {
+        const index = prev.findIndex((v) => v.generation_id === id);
+        return prev.slice(0, index + 1).map((v) => ({ ...v, isActive: v.generation_id === id }));
+      });
+    } catch (err) {
+      setHistoryError(err instanceof Error ? err.message : "되돌리기에 실패했습니다.");
+    } finally {
+      operationRef.current = false;
+      setIsReverting(false);
     }
-    setIsPlaying(false);
-    setModVersions((prev) =>
-      prev.map((v) => ({ ...v, isActive: v.id === id })),
-    );
   };
 
   // ── 렌더링 ────────────────────────────────────────────────────────────────
@@ -491,6 +501,15 @@ export default function Generation() {
           {/* ── 구분선 ── */}
           <div className="border-t border-gray-800" />
 
+          {rootId && (
+            <div className="flex items-center gap-3 text-sm text-gray-400">
+              {isHistoryLoading ? "히스토리를 불러오는 중…" : "서버에 저장된 버전 히스토리"}
+              <button disabled={isBusy || !accessToken} onClick={() => { setIsHistoryLoading(true); setHistoryRevision((v) => v + 1); }} className="text-purple-400 disabled:opacity-40">히스토리 새로고침</button>
+              {!accessToken && <span>로그인이 필요합니다.</span>}
+            </div>
+          )}
+          {historyError && <p role="alert" className="text-sm text-red-400">{historyError}</p>}
+
           {/* ── 생성 전(idle): AI 생성 시작 버튼 ── */}
           {status === "idle" && (
             <div className="flex justify-end">
@@ -513,7 +532,7 @@ export default function Generation() {
           )}
 
           {/* ── 생성 완료(done): 결과 표시 ── */}
-          {status === "done" && (
+          {status === "done" && activeVersion && (
             <div className="flex flex-col gap-4">
               {/* 완료 카드 */}
               <div className="bg-[#0f1015] border border-gray-800 rounded-xl p-5 flex flex-col gap-4">
@@ -522,13 +541,13 @@ export default function Generation() {
                   <div>
                     <p className="text-base font-bold text-white flex items-center gap-2">
                       <span>🎉</span>
-                      {activeIndex === 0
+                      {activeVersion.version_no === 1
                         ? "버전 1 (원본) 생성 완료!"
-                        : `버전 ${activeIndex + 1} 생성 완료!`}
+                        : `버전 ${activeVersion.version_no} 생성 완료!`}
                     </p>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      humix_v{activeIndex + 1}.wav ·{" "}
-                      {activeVersion?.durationStr || "0:00"}
+                      humix_v{activeVersion.version_no}.wav ·{" "}
+                      {formatDuration(activeVersion?.duration_seconds ?? 0)}
                     </p>
                   </div>
 
@@ -562,7 +581,7 @@ export default function Generation() {
                 {/* 타임라인 */}
                 <div className="flex justify-between text-xs text-gray-600 px-1">
                   <span>0:00</span>
-                  <span>{activeVersion?.durationStr || "1:45"}</span>
+                  <span>{formatDuration(activeVersion?.duration_seconds ?? 0)}</span>
                 </div>
 
                 {/* 재생 / 다운로드 버튼 */}
@@ -602,7 +621,7 @@ export default function Generation() {
 
                       {modVersions.map((v, i) => (
                         <div
-                          key={v.id}
+                          key={v.generation_id}
                           className={`bg-[#1A1D24] border ${v.isActive ? "border-[#8B5CF6]/50" : "border-gray-800"} rounded-lg p-4 flex flex-col gap-3 transition-colors`}
                         >
                           {/* 버전 헤더 */}
@@ -611,7 +630,7 @@ export default function Generation() {
                               <span
                                 className={`text-xs font-bold ${v.isActive ? "text-gray-200" : "text-gray-500"}`}
                               >
-                                {i === 0 ? "버전 1 (원본)" : `버전 ${i + 1}`}
+                                {i === 0 ? "버전 1 (원본)" : `버전 ${v.version_no}`}
                               </span>
                               {v.isActive && (
                                 <span className="px-2 py-0.5 rounded-full bg-[#8B5CF6]/20 border border-[#8B5CF6]/40 text-[#8B5CF6] text-xs font-medium">
@@ -621,7 +640,8 @@ export default function Generation() {
                             </div>
                             {!v.isActive && (
                               <button
-                                onClick={() => handleSetActive(v.id)}
+                                disabled={isBusy}
+                                onClick={() => handleSetActive(v.generation_id)}
                                 className="text-xs text-gray-500 hover:text-[#8B5CF6] transition-colors duration-200"
                               >
                                 이 버전으로 되돌리기
@@ -630,7 +650,7 @@ export default function Generation() {
                           </div>
 
                           {/* 프롬프트 내용 (원본은 표시 안 함) */}
-                          {i !== 0 && (
+                          {i !== 0 && v.prompt && (
                             <p className="text-xs text-gray-400 bg-[#0f1015] rounded px-3 py-2 border border-gray-800">
                               "{v.prompt}"
                             </p>
@@ -653,14 +673,25 @@ export default function Generation() {
                     </div>
                   )}
 
+                  <div className="flex flex-wrap items-center gap-3 text-sm text-gray-400">
+                    <span>수정 구간 (최소 5초)</span>
+                    <label>시작 (초) <input aria-label="수정 시작 초" type="number" min={0} max={activeVersion.duration_seconds} step={1} value={startSec} disabled={isBusy} onChange={(e) => setStartSec(e.target.value)} className="w-20 rounded bg-[#1A1D24] p-2" /></label>
+                    <label>끝 (초) <input aria-label="수정 종료 초" type="number" min={5} max={activeVersion.duration_seconds} step={1} value={endSec} disabled={isBusy} onChange={(e) => setEndSec(e.target.value)} className="w-20 rounded bg-[#1A1D24] p-2" /></label>
+                  </div>
+                  {rangeError && <p className="text-xs text-amber-400">{rangeError}</p>}
+                  {isModGenerating && <p role="status" className="text-sm text-purple-400">AI가 선택한 구간을 수정하고 있습니다…</p>}
+                  {isReverting && <p role="status" className="text-sm text-purple-400">이후 버전을 삭제하고 있습니다…</p>}
+
                   {/* 프롬프트 입력창 */}
                   <div className="flex gap-2 items-end mt-2">
                     <div className="flex-1 bg-[#1A1D24] border border-gray-700 focus-within:border-[#8B5CF6] rounded-lg px-4 py-3 transition-colors duration-200">
                       <textarea
+                        maxLength={500}
+                        disabled={isBusy}
                         value={modPrompt}
                         onChange={(e) => setModPrompt(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
+                          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                             e.preventDefault();
                             handleModSubmit();
                           }
@@ -672,10 +703,10 @@ export default function Generation() {
                     </div>
                     <button
                       onClick={handleModSubmit}
-                      disabled={!modPrompt.trim() || isModGenerating}
+                      disabled={isBusy || !accessToken || Boolean(rangeError)}
                       className={`px-4 py-3 rounded-lg text-sm font-bold transition-all duration-200 shrink-0 h-[66px]
                         ${
-                          modPrompt.trim() && !isModGenerating
+                          !isBusy && accessToken && !rangeError
                             ? "bg-[#8B5CF6] hover:bg-[#7C3AED] text-white shadow-lg shadow-[#8B5CF6]/20"
                             : "bg-gray-800 text-gray-600 cursor-not-allowed"
                         }`}
@@ -688,7 +719,7 @@ export default function Generation() {
                     </button>
                   </div>
                   <p className="text-xs text-gray-700">
-                    Enter로 전송 · Shift+Enter로 줄바꿈
+                    Enter로 전송 · Shift+Enter로 줄바꿈 · 최대 500자 (비우면 현재 버전의 프롬프트 사용)
                   </p>
                 </div>
               )}
