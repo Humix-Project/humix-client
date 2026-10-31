@@ -219,11 +219,18 @@ export default function Concept() {
             id="music-direction"
             value={musicDirection}
             onChange={(event) => setMusicDirection(event.target.value)}
-            aria-describedby="music-direction-description"
+            aria-describedby="music-direction-description music-direction-count"
             placeholder="예: 비 오는 밤 창밖을 보며 듣기 좋은 잔잔한 피아노와 로파이 비트, 감성적인 첼로 선율을 더해줘"
             rows={4}
+            maxLength={500}
             className="block min-h-36 w-full resize-y rounded-xl border border-[#8B5CF6]/60 bg-[#8B5CF6]/10 px-4 py-4 text-sm leading-7 text-gray-200 outline-none transition-colors placeholder:text-gray-500 hover:border-[#8B5CF6]/80 focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/20 md:px-5"
           />
+          <p
+            id="music-direction-count"
+            className="mt-2 text-right text-xs text-gray-400"
+          >
+            {musicDirection.length} / 500자
+          </p>
         </section>
 
         {/* 하단 네비게이션 버튼 */}

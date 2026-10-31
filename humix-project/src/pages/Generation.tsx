@@ -9,7 +9,7 @@
  * ─────────────────────────────────────────────
  * [API-1] 곡 생성 요청 (비동기)
  * POST /api/v1/generation/songs
- * Body: { humming_id, genre, mood, melody_vectors, reference_track_id }
+ * Body: { humming_id, title, genre, mood, prompt?, reference_track_id }
  * → task_id 반환
  *
  * [API-2] 생성 진행률 실시간 구독 (SSE)
@@ -179,13 +179,15 @@ export default function Generation() {
 
   // 🔌 API 연결: store에서 곡 생성에 필요한 값 가져오기
   const getGenerationPayload = () => {
-    const { selectedGenre, selectedMoods } = useConceptStore.getState();
+    const { selectedGenre, selectedMoods, musicDirection } = useConceptStore.getState();
     const { hummingId } = useHummingStore.getState();
+    const prompt = musicDirection.trim();
 
     return {
       humming_id: hummingId,
       genre: selectedGenre ?? "kpop",
       mood: selectedMoods[0] ?? "exciting",
+      ...(prompt ? { prompt } : {}),
       reference_track_id: null as number | null,
     };
   };
@@ -257,6 +259,7 @@ export default function Generation() {
             title: "my_song",
             genre: payload.genre,
             mood: payload.mood,
+            ...(payload.prompt ? { prompt: payload.prompt } : {}),
             reference_track_id: payload.reference_track_id,
           }),
         });
