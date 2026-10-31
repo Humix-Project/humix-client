@@ -884,9 +884,10 @@ export default function MelodyEditorPage() {
       ),
     );
 
+    const snappedPitch = Math.round(pitch - dragOffsetRef.current.pitch);
     const newPitch = Math.max(
       MIN_PITCH,
-      Math.min(MAX_PITCH, pitch - dragOffsetRef.current.pitch),
+      Math.min(MAX_PITCH, snappedPitch),
     );
 
     setNotes((previous) =>
