@@ -102,7 +102,6 @@ export default function MelodyEditorPage() {
     height: 0,
   });
 
-  const [isSnapEnabled, setIsSnapEnabled] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
 
@@ -885,15 +884,9 @@ export default function MelodyEditorPage() {
       ),
     );
 
-    let newPitch = pitch - dragOffsetRef.current.pitch;
-
-    if (isSnapEnabled) {
-      newPitch = Math.round(newPitch);
-    }
-
-    newPitch = Math.max(
+    const newPitch = Math.max(
       MIN_PITCH,
-      Math.min(MAX_PITCH, newPitch),
+      Math.min(MAX_PITCH, pitch - dragOffsetRef.current.pitch),
     );
 
     setNotes((previous) =>
@@ -1071,37 +1064,6 @@ export default function MelodyEditorPage() {
                   초기화
                 </button>
               </div>
-
-              <button
-                type="button"
-                role="switch"
-                aria-checked={isSnapEnabled}
-                aria-label="음계 스냅"
-                onClick={() =>
-                  setIsSnapEnabled((previous) => !previous)
-                }
-                className="flex items-center gap-2 border-l border-gray-800 pl-4"
-              >
-                <span
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    isSnapEnabled
-                      ? "bg-[#8B5CF6]"
-                      : "bg-gray-600"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                      isSnapEnabled
-                        ? "translate-x-6"
-                        : "translate-x-1"
-                    }`}
-                  />
-                </span>
-
-                <span className="text-sm text-gray-300">
-                  음계 스냅
-                </span>
-              </button>
             </div>
 
             <button
