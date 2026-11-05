@@ -21,6 +21,8 @@
  */
 
 import { useState, useRef, useEffect } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
+import AudioWaveform from "../components/AudioWaveform";
 import { useSearchParams } from "react-router-dom";
 import { generationRequest, validateModification, revertMessage } from "../utils/generationHistory";
 import type { SongVersion, VersionHistory } from "../utils/generationHistory";
@@ -154,6 +156,9 @@ export default function Generation() {
   const [historyRevision, setHistoryRevision] = useState(0);
   const [startSec, setStartSec] = useState("0");
   const [endSec, setEndSec] = useState("5");
+  // 녹음하기 페이지처럼 버튼으로 구간 선택 모드를 켜고 파형을 드래그합니다.
+  const [isSelectingRange, setIsSelectingRange] = useState(false);
+  const rangeDragRef = useRef<{ pointerId: number; anchorSec: number } | null>(null);
   const operationRef = useRef(false);
   const streamRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(false);
@@ -180,6 +185,9 @@ export default function Generation() {
         audioRef.current = null;
         setIsPlaying(false);
         setModVersions(versions.map((v, i) => ({ ...v, isActive: i === versions.length - 1 })));
+        setStartSec("0");
+        setEndSec("5");
+        setIsSelectingRange(false);
         setStatus("done");
         setHistoryError("");
         setIsHistoryLoading(false);
@@ -199,6 +207,46 @@ export default function Generation() {
   const rangeError = activeVersion
     ? validateModification(startSec === "" ? NaN : Number(startSec), endSec === "" ? NaN : Number(endSec), activeVersion.duration_seconds, modPrompt.trim())
     : "수정할 곡을 불러와주세요.";
+
+  // 기존 수정 API는 정수 초를 사용하므로 파형 좌표를 1초 단위로 맞춥니다.
+  const getWaveformSecond = (event: ReactPointerEvent<HTMLDivElement>, duration: number) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = rect.width > 0
+      ? Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+      : 0;
+    return Math.min(Math.floor(duration), Math.max(0, Math.round(ratio * duration)));
+  };
+
+  const handleRangePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isSelectingRange || isBusy || !activeVersion || !event.isPrimary || event.button !== 0) return;
+    event.preventDefault();
+    const anchorSec = getWaveformSecond(event, activeVersion.duration_seconds);
+    rangeDragRef.current = { pointerId: event.pointerId, anchorSec };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setStartSec(String(anchorSec));
+    setEndSec(String(anchorSec));
+  };
+
+  const handleRangePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = rangeDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !activeVersion) return;
+    const currentSec = getWaveformSecond(event, activeVersion.duration_seconds);
+    setStartSec(String(Math.min(drag.anchorSec, currentSec)));
+    setEndSec(String(Math.max(drag.anchorSec, currentSec)));
+  };
+
+  const handleRangePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (rangeDragRef.current?.pointerId !== event.pointerId) return;
+    handleRangePointerMove(event);
+    rangeDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const handleRangePointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (rangeDragRef.current?.pointerId === event.pointerId) rangeDragRef.current = null;
+  };
 
   // 🔌 API 연결: API Base URL
   // TODO: 실제 배포 시 .env (VITE_API_BASE_URL 등)로 분리할 것
@@ -439,6 +487,9 @@ export default function Generation() {
             audio_url: data.result.audio_url, duration_seconds: data.result.duration_seconds, isActive: true },
         ]);
         setModPrompt("");
+        setStartSec("0");
+        setEndSec("5");
+        setIsSelectingRange(false);
         setIsModGenerating(false);
         operationRef.current = false;
       }, fail, () => {
@@ -471,6 +522,9 @@ export default function Generation() {
         const index = prev.findIndex((v) => v.generation_id === id);
         return prev.slice(0, index + 1).map((v) => ({ ...v, isActive: v.generation_id === id }));
       });
+      setStartSec("0");
+      setEndSec("5");
+      setIsSelectingRange(false);
     } catch (err) {
       setHistoryError(err instanceof Error ? err.message : "되돌리기에 실패했습니다.");
     } finally {
@@ -664,6 +718,21 @@ export default function Generation() {
                                 </span>
                               )}
                             </div>
+                            {v.isActive && (
+                              <button
+                                type="button"
+                                aria-pressed={isSelectingRange}
+                                disabled={isBusy || v.duration_seconds < 5}
+                                onClick={() => setIsSelectingRange((prev) => !prev)}
+                                className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                                  isSelectingRange
+                                    ? "border-pink-400 bg-pink-400/15 text-pink-300"
+                                    : "border-[#8B5CF6]/40 bg-[#8B5CF6]/15 text-[#a78bfa] hover:border-[#8B5CF6]"
+                                }`}
+                              >
+                                {isSelectingRange ? "선택 종료" : "구간 선택"}
+                              </button>
+                            )}
                             {!v.isActive && (
                               <button
                                 disabled={isBusy}
@@ -682,18 +751,42 @@ export default function Generation() {
                             </p>
                           )}
 
-                          {/* 더미 파형 (버전별) */}
-                          <div className="w-full h-12 rounded bg-[#0f1015] border border-gray-800 flex items-center px-2 gap-[2px] overflow-hidden opacity-80 hover:opacity-100 transition-opacity">
-                            {Array.from({ length: 60 }).map((_, j) => (
-                              <div
-                                key={j}
-                                className={`flex-1 rounded-sm ${v.isActive ? "bg-gradient-to-t from-[#8B5CF6] to-pink-400" : "bg-gray-700"}`}
-                                style={{
-                                  height: `${20 + Math.sin((j + i * 10) * 0.5) * 15 + ((j * 43 + i * 17) % 25)}%`,
-                                }}
-                              />
-                            ))}
+                          {/* 실제 오디오 파형 · 녹음 페이지와 같은 드래그 구간 선택 */}
+                          <div
+                            className={`relative w-full h-12 rounded bg-[#0f1015] border border-gray-800 overflow-hidden select-none ${
+                              v.isActive && isSelectingRange && !isBusy ? "cursor-crosshair border-pink-400/60" : ""
+                            }`}
+                            style={{ touchAction: v.isActive && isSelectingRange ? "none" : "auto" }}
+                            aria-label={v.isActive ? "현재 버전 수정 구간 파형" : undefined}
+                            onPointerDown={v.isActive ? handleRangePointerDown : undefined}
+                            onPointerMove={v.isActive ? handleRangePointerMove : undefined}
+                            onPointerUp={v.isActive ? handleRangePointerUp : undefined}
+                            onPointerCancel={v.isActive ? handleRangePointerCancel : undefined}
+                            onLostPointerCapture={v.isActive ? handleRangePointerCancel : undefined}
+                          >
+                            <div className="w-full h-full pointer-events-none">
+                              <AudioWaveform src={v.audio_url} muted={!v.isActive} barCount={60} />
+                            </div>
+                            {v.isActive &&
+                              startSec !== "" && endSec !== "" &&
+                              Number.isFinite(Number(startSec)) && Number.isFinite(Number(endSec)) &&
+                              Number(endSec) > Number(startSec) && v.duration_seconds > 0 && (
+                                <div
+                                  className="absolute inset-y-0 pointer-events-none rounded"
+                                  style={{
+                                    left: `${Math.max(0, Math.min(100, (Number(startSec) / v.duration_seconds) * 100))}%`,
+                                    width: `${Math.max(0, Math.min(100, (Number(endSec) / v.duration_seconds) * 100) - Math.max(0, (Number(startSec) / v.duration_seconds) * 100))}%`,
+                                    background: "rgba(232,121,249,0.15)",
+                                    border: "1px solid rgba(232,121,249,0.6)",
+                                  }}
+                                />
+                              )}
                           </div>
+                          {v.isActive && isSelectingRange && (
+                            <p className="text-xs text-pink-300">
+                              위 파형에서 드래그해 수정할 구간을 선택하세요. (최소 5초)
+                            </p>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -701,6 +794,9 @@ export default function Generation() {
 
                   <div className="flex flex-wrap items-center gap-3 text-sm text-gray-400">
                     <span>수정 구간 (최소 5초)</span>
+                    <span className="text-xs text-pink-300 tabular-nums">
+                      선택됨: {formatDuration(Number(startSec) || 0)} ~ {formatDuration(Number(endSec) || 0)}
+                    </span>
                     <label>시작 (초) <input aria-label="수정 시작 초" type="number" min={0} max={activeVersion.duration_seconds} step={1} value={startSec} disabled={isBusy} onChange={(e) => setStartSec(e.target.value)} className="w-20 rounded bg-[#1A1D24] p-2" /></label>
                     <label>끝 (초) <input aria-label="수정 종료 초" type="number" min={5} max={activeVersion.duration_seconds} step={1} value={endSec} disabled={isBusy} onChange={(e) => setEndSec(e.target.value)} className="w-20 rounded bg-[#1A1D24] p-2" /></label>
                   </div>
