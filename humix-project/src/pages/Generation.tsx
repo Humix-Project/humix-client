@@ -792,13 +792,10 @@ export default function Generation() {
                     </div>
                   )}
 
-                  <div className="flex flex-wrap items-center gap-3 text-sm text-gray-400">
-                    <span>수정 구간 (최소 5초)</span>
+                  <div className="flex items-center text-sm text-gray-400">
                     <span className="text-xs text-pink-300 tabular-nums">
                       선택됨: {formatDuration(Number(startSec) || 0)} ~ {formatDuration(Number(endSec) || 0)}
                     </span>
-                    <label>시작 (초) <input aria-label="수정 시작 초" type="number" min={0} max={activeVersion.duration_seconds} step={1} value={startSec} disabled={isBusy} onChange={(e) => setStartSec(e.target.value)} className="w-20 rounded bg-[#1A1D24] p-2" /></label>
-                    <label>끝 (초) <input aria-label="수정 종료 초" type="number" min={5} max={activeVersion.duration_seconds} step={1} value={endSec} disabled={isBusy} onChange={(e) => setEndSec(e.target.value)} className="w-20 rounded bg-[#1A1D24] p-2" /></label>
                   </div>
                   {rangeError && <p className="text-xs text-amber-400">{rangeError}</p>}
                   {isModGenerating && <p role="status" className="text-sm text-purple-400">AI가 선택한 구간을 수정하고 있습니다…</p>}
