@@ -22,7 +22,6 @@
 
 import { useState, useRef, useEffect } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import AudioWaveform from "../components/AudioWaveform";
 import { useSearchParams } from "react-router-dom";
 import { generationRequest, validateModification, revertMessage } from "../utils/generationHistory";
 import type { SongVersion, VersionHistory } from "../utils/generationHistory";
@@ -751,7 +750,7 @@ export default function Generation() {
                             </p>
                           )}
 
-                          {/* 실제 오디오 파형 · 녹음 페이지와 같은 드래그 구간 선택 */}
+                          {/* 기존 더미 파형 · 실제 오디오 접근과 무관하게 구간 드래그 선택 */}
                           <div
                             className={`relative w-full h-12 rounded bg-[#0f1015] border border-gray-800 overflow-hidden select-none ${
                               v.isActive && isSelectingRange && !isBusy ? "cursor-crosshair border-pink-400/60" : ""
@@ -764,8 +763,18 @@ export default function Generation() {
                             onPointerCancel={v.isActive ? handleRangePointerCancel : undefined}
                             onLostPointerCapture={v.isActive ? handleRangePointerCancel : undefined}
                           >
-                            <div className="w-full h-full pointer-events-none">
-                              <AudioWaveform src={v.audio_url} muted={!v.isActive} barCount={60} />
+                            <div className="w-full h-full px-2 flex items-center gap-[2px] pointer-events-none">
+                              {Array.from({ length: 60 }).map((_, j) => (
+                                <div
+                                  key={j}
+                                  className={`flex-1 min-w-0 rounded-sm ${
+                                    v.isActive ? "bg-gradient-to-t from-[#8B5CF6] to-pink-400" : "bg-gray-700"
+                                  }`}
+                                  style={{
+                                    height: `${20 + Math.sin((j + i * 10) * 0.5) * 15 + ((j * 43 + i * 17) % 25)}%`,
+                                  }}
+                                />
+                              ))}
                             </div>
                             {v.isActive &&
                               startSec !== "" && endSec !== "" &&
