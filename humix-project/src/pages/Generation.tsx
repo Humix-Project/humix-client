@@ -22,6 +22,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import AudioWaveform from "../components/AudioWaveform";
 import { useSearchParams } from "react-router-dom";
 import { generationRequest, validateModification, revertMessage } from "../utils/generationHistory";
 import type { SongVersion, VersionHistory } from "../utils/generationHistory";
@@ -203,6 +204,16 @@ export default function Generation() {
   // ✅ 현재 활성화된(isActive가 true인) 버전
   const activeVersion = modVersions.find((v) => v.isActive);
   const isBusy = isModGenerating || isReverting || isHistoryLoading;
+  const selectedRange: [number, number] | null =
+    activeVersion && activeVersion.duration_seconds > 0 &&
+    startSec !== "" && endSec !== "" &&
+    Number.isFinite(Number(startSec)) && Number.isFinite(Number(endSec)) &&
+    Number(endSec) > Number(startSec)
+      ? [
+          Math.max(0, Math.min(1, Number(startSec) / activeVersion.duration_seconds)),
+          Math.max(0, Math.min(1, Number(endSec) / activeVersion.duration_seconds)),
+        ]
+      : null;
   const rangeError = activeVersion
     ? validateModification(startSec === "" ? NaN : Number(startSec), endSec === "" ? NaN : Number(endSec), activeVersion.duration_seconds, modPrompt.trim())
     : "수정할 곡을 불러와주세요.";
@@ -643,18 +654,9 @@ export default function Generation() {
                   </button>
                 </div>
 
-                {/* 파형 시각화 영역 (더미) */}
-                {/* TODO: Wavesurfer.js 또는 Web Audio API로 실제 파형 렌더링 교체 */}
-                <div className="w-full h-20 rounded-lg bg-[#1A1D24] border border-gray-800 flex items-center px-3 gap-[2px] overflow-hidden">
-                  {Array.from({ length: 80 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="flex-1 rounded-sm bg-gradient-to-t from-[#8B5CF6] to-pink-400 opacity-80"
-                      style={{
-                        height: `${20 + Math.sin(i * 0.4) * 15 + ((i * 47) % 30)}%`,
-                      }}
-                    />
-                  ))}
+                {/* 녹음하기 스타일의 실제 오디오 파형 */}
+                <div className="w-full h-20 rounded-lg bg-[#1A1D24] border border-gray-800 overflow-hidden px-3">
+                  <AudioWaveform src={activeVersion.audio_url} barCount={80} recordingStyle height={70} />
                 </div>
 
                 {/* 타임라인 */}
@@ -750,7 +752,7 @@ export default function Generation() {
                             </p>
                           )}
 
-                          {/* 기존 더미 파형 · 실제 오디오 접근과 무관하게 구간 드래그 선택 */}
+                          {/* 녹음하기 스타일의 실제 오디오 파형 · 드래그 구간 선택 유지 */}
                           <div
                             className={`relative w-full h-12 rounded bg-[#0f1015] border border-gray-800 overflow-hidden select-none ${
                               v.isActive && isSelectingRange && !isBusy ? "cursor-crosshair border-pink-400/60" : ""
@@ -763,33 +765,16 @@ export default function Generation() {
                             onPointerCancel={v.isActive ? handleRangePointerCancel : undefined}
                             onLostPointerCapture={v.isActive ? handleRangePointerCancel : undefined}
                           >
-                            <div className="w-full h-full px-2 flex items-center gap-[2px] pointer-events-none">
-                              {Array.from({ length: 60 }).map((_, j) => (
-                                <div
-                                  key={j}
-                                  className={`flex-1 min-w-0 rounded-sm ${
-                                    v.isActive ? "bg-gradient-to-t from-[#8B5CF6] to-pink-400" : "bg-gray-700"
-                                  }`}
-                                  style={{
-                                    height: `${20 + Math.sin((j + i * 10) * 0.5) * 15 + ((j * 43 + i * 17) % 25)}%`,
-                                  }}
-                                />
-                              ))}
+                            <div className="h-full w-full pointer-events-none">
+                              <AudioWaveform
+                                src={v.audio_url}
+                                barCount={60}
+                                recordingStyle
+                                height={36}
+                                muted={!v.isActive}
+                                selectedRange={v.isActive ? selectedRange : null}
+                              />
                             </div>
-                            {v.isActive &&
-                              startSec !== "" && endSec !== "" &&
-                              Number.isFinite(Number(startSec)) && Number.isFinite(Number(endSec)) &&
-                              Number(endSec) > Number(startSec) && v.duration_seconds > 0 && (
-                                <div
-                                  className="absolute inset-y-0 pointer-events-none rounded"
-                                  style={{
-                                    left: `${Math.max(0, Math.min(100, (Number(startSec) / v.duration_seconds) * 100))}%`,
-                                    width: `${Math.max(0, Math.min(100, (Number(endSec) / v.duration_seconds) * 100) - Math.max(0, (Number(startSec) / v.duration_seconds) * 100))}%`,
-                                    background: "rgba(232,121,249,0.15)",
-                                    border: "1px solid rgba(232,121,249,0.6)",
-                                  }}
-                                />
-                              )}
                           </div>
                           {v.isActive && isSelectingRange && (
                             <p className="text-xs text-pink-300">
