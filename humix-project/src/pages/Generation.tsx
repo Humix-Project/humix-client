@@ -791,7 +791,6 @@ export default function Generation() {
                       선택됨: {formatDuration(Number(startSec) || 0)} ~ {formatDuration(Number(endSec) || 0)}
                     </span>
                   </div>
-                  {rangeError && <p className="text-xs text-amber-400">{rangeError}</p>}
                   {isModGenerating && <p role="status" className="text-sm text-purple-400">AI가 선택한 구간을 수정하고 있습니다…</p>}
                   {isReverting && <p role="status" className="text-sm text-purple-400">이후 버전을 삭제하고 있습니다…</p>}
 
