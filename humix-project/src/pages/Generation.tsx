@@ -26,6 +26,7 @@ import { generationRequest, validateModification, revertMessage } from "../utils
 import type { SongVersion, VersionHistory } from "../utils/generationHistory";
 import Stepper from "../components/Stepper";
 import DownloadModal from "../components/DownloadModal";
+import { genres, moods } from "../data/musicOptions";
 // 🔌 API 연결: EventSource는 Authorization 등 커스텀 헤더를 지정할 수 없어
 //             fetch 기반으로 헤더를 자유롭게 설정 가능한 라이브러리로 교체 (명세서 비고: "헤더 수정 불가 시 외부 라이브러리 사용" 지침 반영)
 //             설치: npm install @microsoft/fetch-event-source
@@ -36,47 +37,6 @@ import { useAuthStore } from "../store/useAuthStore";
 import { useConceptStore } from "../store/useConceptStore";
 // 🔌 API 연결: 허밍 녹음 단계에서 저장된 humming_id를 가져오기 위해 humming 스토어 연결
 import { useHummingStore } from "../store/useHummingStore";
-
-// ── 생성 설정 요약 타입 ────────────────────────────────────────────────────
-// TODO: 실제 연결 시 Zustand store에서 가져오도록 교체
-// import { useStore } from '../store/useStore';
-interface SummaryItem {
-  icon: string;
-  label: string;
-  value: string;
-}
-
-// ── 임시 더미 데이터 (API 연결 전 UI 확인용) ──────────────────────────────
-// TODO: 실제 연결 시 아래 더미 데이터를 Zustand store 값으로 교체
-// const { hummingDuration, melodyVectors, genre, moods, referenceTrackId } = useStore();
-const DUMMY_SUMMARY: SummaryItem[] = [
-  {
-    icon: "🎤",
-    label: "허밍 녹음",
-    value: "완료 (8.0s)",
-  },
-  {
-    icon: "🎼",
-    label: "멜로디 벡터",
-    value: "6개 노트 추출",
-  },
-  {
-    icon: "🎸",
-    label: "장르",
-    value: "K-POP",
-  },
-  {
-    icon: "🌤",
-    label: "분위기",
-    value: "밝고 신나는",
-  },
-  {
-    icon: "🎵",
-    label: "스타일 참조",
-    // TODO: referenceTrackId가 null이면 '선택 없음' 표시
-    value: "선택 없음",
-  },
-];
 
 // ── 생성 상태 타입 ────────────────────────────────────────────────────────
 type GenerationStatus = "idle" | "generating" | "done" | "error";
@@ -132,6 +92,20 @@ export default function Generation() {
   const [searchParams, setSearchParams] = useSearchParams();
   const rootId = Number(searchParams.get("root_generation_id")) || null;
   const accessToken = useAuthStore((state) => state.accessToken);
+  const { selectedGenre, selectedMoods, musicDirection, referenceFileName } = useConceptStore();
+  const { hummingId, durationSeconds, melodyVectors } = useHummingStore();
+  // API 요청과 동일한 선택값을 표시합니다. 이전 단계에서 저장하지 않은 정보는 추측하지 않습니다.
+  const genre = selectedGenre ?? "kpop";
+  const mood = selectedMoods[0] ?? "exciting";
+  const summary = [
+    { icon: "🎤", label: "허밍 녹음", value: hummingId !== null && durationSeconds !== null ? `완료 (${durationSeconds.toFixed(1)}s)` : "녹음 정보 없음" },
+    { icon: "🎼", label: "멜로디 벡터", value: melodyVectors !== null ? `${melodyVectors.length}개 노트` : "편집 정보 없음" },
+    { icon: "🎸", label: "장르", value: genres.find((option) => option.id === genre)?.name ?? genre },
+    { icon: "🌤", label: "분위기", value: moods.find((option) => option.id === mood)?.name ?? mood },
+    { icon: "✍️", label: "음악 방향성", value: musicDirection.trim() || "입력 없음" },
+    // 참고 음악 업로드는 현재 시뮬레이션입니다. 선택 파일을 실제 생성에 적용한 것으로 표시하지 않습니다.
+    { icon: "🎵", label: "스타일 참조", value: referenceFileName ? `${referenceFileName} (미적용)` : "선택 없음" },
+  ];
   const [status, setStatus] = useState<GenerationStatus>(rootId ? "done" : "idle");
   const [progressMsg, setProgressMsg] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
@@ -211,14 +185,12 @@ export default function Generation() {
 
   // 🔌 API 연결: store에서 곡 생성에 필요한 값 가져오기
   const getGenerationPayload = () => {
-    const { selectedGenre, selectedMoods, musicDirection } = useConceptStore.getState();
-    const { hummingId } = useHummingStore.getState();
     const prompt = musicDirection.trim();
 
     return {
       humming_id: hummingId,
-      genre: selectedGenre ?? "kpop",
-      mood: selectedMoods[0] ?? "exciting",
+      genre,
+      mood,
       ...(prompt ? { prompt } : {}),
       reference_track_id: null as number | null,
     };
@@ -501,27 +473,27 @@ export default function Generation() {
         {/* ── 메인 카드 ── */}
         <div className="bg-[#15171C] border border-gray-800 rounded-xl p-6 shadow-xl flex flex-col gap-6">
           {/* ── 생성 설정 요약 ── */}
-          <div>
+          <section aria-label="생성 설정 요약">
             <p className="text-xs text-gray-500 mb-3 font-medium tracking-wide uppercase">
               생성 설정 요약
             </p>
             <div className="flex flex-col gap-2.5">
-              {DUMMY_SUMMARY.map((item) => (
+              {summary.map((item) => (
                 <div
                   key={item.label}
-                  className="flex items-center justify-between"
+                  className="flex items-start justify-between gap-4"
                 >
-                  <div className="flex items-center gap-2 text-sm text-gray-400">
+                  <div className="flex shrink-0 items-center gap-2 text-sm text-gray-400">
                     <span>{item.icon}</span>
                     <span>{item.label}</span>
                   </div>
-                  <span className="text-sm font-medium text-white">
+                  <span className="min-w-0 max-w-[65%] text-right text-sm font-medium whitespace-pre-wrap break-words text-white">
                     {item.value}
                   </span>
                 </div>
               ))}
             </div>
-          </div>
+          </section>
 
           {/* ── 구분선 ── */}
           <div className="border-t border-gray-800" />

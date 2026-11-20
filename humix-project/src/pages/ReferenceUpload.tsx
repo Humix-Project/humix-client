@@ -22,6 +22,7 @@ import { useState, useRef, useCallback } from "react";
 // ✅ 추가: 페이지 이동을 위한 useNavigate 훅 임포트
 import { useNavigate } from "react-router-dom";
 import Stepper from "../components/Stepper";
+import { useConceptStore } from "../store/useConceptStore";
 // 🔌 API 연결 보류: 업로드 API 재활성화 시 사용할 인증 스토어. 현재는 getAccessToken()이
 //                 호출되지 않아 실제로 쓰이진 않지만, 미리 연결해 둠.
 import { useAuthStore } from "../store/useAuthStore";
@@ -63,6 +64,7 @@ export default function ReferenceUpload() {
 
   // ✅ 추가: 페이지 이동 함수 초기화
   const navigate = useNavigate();
+  const setReferenceFileName = useConceptStore((state) => state.setReferenceFileName);
 
   // 🔌 API 연결 보류: [API-3] 업로드 완료 후 서버에서 받은 reference_track_id 저장용 state.
   // 비고: 현재 업로드 API 자체가 비활성화(더미 시뮬레이션)되어 있어 이 state는 사용되지 않음.
@@ -241,6 +243,7 @@ export default function ReferenceUpload() {
   // ── 파일 제거 ──────────────────────────────────────────────────────────────
   const handleRemove = () => {
     setUploadedFile(null);
+    setReferenceFileName(null);
     setUploadDone(false);
     setUploadProgress(0);
     setIsUploading(false);
@@ -262,6 +265,7 @@ export default function ReferenceUpload() {
 
   // ── 다음 단계 이동 핸들러 ─────────────────────────────────────────────────
   const handleNext = () => {
+    setReferenceFileName(uploadDone ? uploadedFile?.name ?? null : null);
     // 🔌 API 연결: Zustand store에 referenceTrackId 저장 후 이동
     // TODO: store에 referenceTrackId 필드 추가되는 대로 아래 주석 해제
     //   useConceptStore.getState().setReferenceTrackId(referenceTrackId);
@@ -273,6 +277,7 @@ export default function ReferenceUpload() {
 
   // ── 건너뛰기 핸들러 ──────────────────────────────────────────────────────
   const handleSkip = () => {
+    setReferenceFileName(null);
     // 🔌 API 연결: 참고 음악 없이 AI 생성 페이지로 이동
     // TODO: Zustand store의 referenceTrackId는 null로 유지
     console.log("건너뛰기: 참고 음악 없이 진행");
