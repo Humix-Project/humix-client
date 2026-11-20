@@ -94,6 +94,7 @@ export default function MelodyEditorPage() {
   const navigate = useNavigate();
 
   const hummingId = useHummingStore((state) => state.hummingId);
+  const setMelodyVectors = useHummingStore((state) => state.setMelodyVectors);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -181,7 +182,9 @@ export default function MelodyEditorPage() {
         const data = await response.json();
         const loaded: MelodyNote[] = data.result?.notes || [];
 
+        if (controller.signal.aborted) return;
         setNotes(loaded);
+        setMelodyVectors(loaded);
       } catch (error) {
         if ((error as Error).name === "AbortError") return;
 
@@ -197,7 +200,7 @@ export default function MelodyEditorPage() {
     fetchMelodyData();
 
     return () => controller.abort();
-  }, [hummingId, navigate]);
+  }, [hummingId, navigate, setMelodyVectors]);
 
   const getAudioContext = () => {
     if (!audioCtxRef.current) {
@@ -992,6 +995,7 @@ export default function MelodyEditorPage() {
       );
 
       if (response.ok) {
+        setMelodyVectors(notes);
         navigate("/concept");
       } else {
         alert(

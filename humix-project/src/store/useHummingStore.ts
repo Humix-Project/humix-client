@@ -32,7 +32,10 @@ export const useHummingStore = create<HummingState>((set) => ({
   melodyVectors: null,
 
   setHumming: ({ hummingId, fileUrl, durationSeconds }) =>
-    set({ hummingId, fileUrl, durationSeconds }),
+    set((state) => ({
+      hummingId, fileUrl, durationSeconds,
+      melodyVectors: state.hummingId === hummingId ? state.melodyVectors : null,
+    })),
 
   setMelodyVectors: (notes) => set({ melodyVectors: notes }),
 
